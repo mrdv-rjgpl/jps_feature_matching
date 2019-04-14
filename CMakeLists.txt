@@ -209,3 +209,5 @@ include_directories(
 
 add_executable(feature_matcher src/feature_matcher.cpp)
 target_link_libraries(feature_matcher ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+add_executable(test_feature_supplier src/test_feature_supplier.cpp)
+target_link_libraries(test_feature_supplier ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
