@@ -43,7 +43,9 @@ void TestFeatureSupplier::timerCallback(const ros::TimerEvent& event)
   if(this->nh.getParam("img_file_name", img_file_name))
   {
     Mat img = imread(img_file_name, CV_LOAD_IMAGE_COLOR);
-    sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img).toImageMsg();
+    Mat img_resized;
+    resize(img, img_resized, Size(), 0.6, 0.6);
+    sensor_msgs::ImagePtr msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img_resized).toImageMsg();
     ROS_INFO("Publishing image_transport message...");
     this->image_pub.publish(msg);
   }

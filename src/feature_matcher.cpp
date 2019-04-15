@@ -1,7 +1,8 @@
+#include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/core/core.hpp>
+#include <opencv2/features2d.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgcodecs/imgcodecs.hpp>
-#include <opencv2/features2d.hpp>
 #include <opencv2/xfeatures2d.hpp>
 
 #include <ros/ros.h>
@@ -137,22 +138,16 @@ void FeatureMatcher::imageSubscriberCallback(const sensor_msgs::ImageConstPtr& m
   ROS_INFO("Running k-NN matching...");
   matcher->knnMatch(desc_piece, this->desc_template, knn_matches, 2);
   ROS_INFO("Running comparison for good matches...");
+  vector<Point> pt_template;
+  vector<Point> pt_piece;
 
   for(i = 0; i < knn_matches.size(); ++i)
   {
     if(knn_matches[i][0].distance < dist_ratio_threshold * knn_matches[i][1].distance)
     {
-      ROS_INFO_STREAM(
-          "Match found between "
-          << i
-          << " and "
-          << knn_matches[i][0].imgIdx
-          << ", "
-          << knn_matches[i][0].queryIdx
-          << ", "
-          << knn_matches[i][0].trainIdx
-          << ".");
       good_matches.push_back(knn_matches[i][0]);
+      pt_piece.push_back(kp_piece[knn_matches[i][0].queryIdx].pt);
+      pt_template.push_back(this->kp_template[knn_matches[i][0].trainIdx].pt);
     }
     else
     {
@@ -177,6 +172,8 @@ void FeatureMatcher::imageSubscriberCallback(const sensor_msgs::ImageConstPtr& m
       DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
   imshow("Good matches", img_matches);
   waitKey(0);
+
+  Mat h = findHomography(pt_piece, pt_template, CV_RANSAC);
 }
 
 int main(int argc, char **argv)
