@@ -1,0 +1,5 @@
+<launch>
+	<include file="$(find jps_feature_matching)/launch/feature_matcher.launch" />
+	<param name="img_file_name" value="/media/mardava/DATA/Academics/530_707_robot_sys_prog/530_707_independent_project/dat/20190407/pic05.png" type="string" />
+	<node pkg="jps_feature_matching" type="test_feature_supplier" name="test_feature_supplier_node" />
+</launch>
