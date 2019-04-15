@@ -103,7 +103,8 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
     ROS_INFO_STREAM("Loading template image " << img_template_name << "...");
     this->img_template = imread(img_template_name, CV_LOAD_IMAGE_COLOR);
     ROS_INFO("Extracting SURF features from template image...");
-    this->surf_detector->detectAndCompute(this->img_template, noArray(), kp_template, desc_template);
+    this->surf_detector->detectAndCompute(this->img_template, noArray(), this->kp_template, this->desc_template);
+    ROS_INFO_STREAM(this->kp_template.size() << " template elements extracted.");
   }
   else
   {
@@ -113,33 +114,78 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 
 void FeatureMatcher::imageSubscriberCallback(const sensor_msgs::ImageConstPtr& msg)
 {
-  ROS_INFO("Extracting SURF features from puzzle piece...");
+  int i;
   Mat img_input = cv_bridge::toCvShare(msg, "bgr8")->image;
   vector<KeyPoint> kp_piece;
   Mat desc_piece;
+  double dist_ratio_threshold = 0.7;
 
   // Extract SURF features from input image of puzzle piece.
+  ROS_INFO("Extracting SURF features from puzzle piece...");
   this->surf_detector->detectAndCompute(
       cv_bridge::toCvShare(msg, "bgr8")->image,
       noArray(),
       kp_piece,
       desc_piece);
-  // Compare with SURF features extracted from template image.
-}
+  ROS_INFO_STREAM(kp_piece.size() << " template elements extracted from puzzle piece.");
 
-//double FeatureMatcher::computeSurfScore(vector<KeyPoint> kp_input)
-//{
-//  double score = 0.0;
-//  int i;
-//
-//  for(i = 0; i < kp_input.size(); ++i)
-//  {
-//    score += 1.0 / (1.0);
-//  }
-//}
+  // Compare with SURF features extracted from template image.
+  // https://docs.opencv.org/3.4/d5/d6f/tutorial_feature_flann_matcher.html
+  Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+  vector< vector<DMatch> > knn_matches;
+  vector<DMatch> good_matches;
+  ROS_INFO("Running k-NN matching...");
+  matcher->knnMatch(desc_piece, this->desc_template, knn_matches, 2);
+  ROS_INFO("Running comparison for good matches...");
+
+  for(i = 0; i < knn_matches.size(); ++i)
+  {
+    if(knn_matches[i][0].distance < dist_ratio_threshold * knn_matches[i][1].distance)
+    {
+      ROS_INFO_STREAM(
+          "Match found between "
+          << i
+          << " and "
+          << knn_matches[i][0].imgIdx
+          << ", "
+          << knn_matches[i][0].queryIdx
+          << ", "
+          << knn_matches[i][0].trainIdx
+          << ".");
+      good_matches.push_back(knn_matches[i][0]);
+    }
+    else
+    {
+      // No operation
+    }
+  }
+
+  ROS_INFO_STREAM(good_matches.size() << " good matches found.");
+
+  ROS_INFO("Drawing matches...");
+  Mat img_matches;
+  drawMatches(
+      img_input,
+      kp_piece,
+      this->img_template,
+      this->kp_template,
+      good_matches,
+      img_matches,
+      Scalar::all(-1),
+      Scalar::all(-1),
+      vector<char>(),
+      DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+  imshow("Good matches", img_matches);
+  waitKey(0);
+}
 
 int main(int argc, char **argv)
 {
+  ros::init(argc, argv, "feature_matcher_node");
+  ros::NodeHandle nh;
+  FeatureMatcher p(nh, 400.0);
+  ros::spin();
+
   return 0;
 }
 
