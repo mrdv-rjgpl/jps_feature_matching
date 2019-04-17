@@ -99,7 +99,7 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   this->dist_ratio_pdf[20][0] = 1.00;
   this->dist_ratio_pdf[20][1] = 0.000;
 
-  if(this->nh.getParam("img_template_name", img_template_name))
+  if(this->nh.getParam("/feature_matcher/img_template_name", img_template_name))
   {
     ROS_INFO_STREAM("Loading template image " << img_template_name << "...");
     this->img_template = imread(img_template_name, CV_LOAD_IMAGE_COLOR);
