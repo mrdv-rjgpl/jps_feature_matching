@@ -17,6 +17,7 @@
 #include <functional>
 
 #include <exception>
+#include "jps_puzzle_piece/ImageWithContour.h"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
@@ -26,7 +27,7 @@ class FeatureMatcher
 {
   private:
     image_transport::ImageTransport *img_transport;
-    image_transport::Subscriber image_sub;
+    ros::Subscriber image_sub;
     int min_hessian;
     Mat img_template;
     Mat desc_template;
@@ -38,7 +39,7 @@ class FeatureMatcher
 
   public:
     FeatureMatcher(ros::NodeHandle& nh, int min_hessian);
-    void imageSubscriberCallback(const sensor_msgs::ImageConstPtr& msg);
+    void imageSubscriberCallback(const jps_puzzle_piece::ImageWithContourPtr& msg);
 };
 
 FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
@@ -50,8 +51,8 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   this->min_hessian = min_hessian;
   this->surf_detector = SURF::create(min_hessian);
   this->img_transport = new image_transport::ImageTransport(this->nh);
-  this->image_sub = this->img_transport->subscribe(
-      "/piece_parser/image_piece",
+  this->image_sub = this->nh.subscribe(
+      "input_image",
       1,
       &FeatureMatcher::imageSubscriberCallback,
       this);
@@ -99,7 +100,7 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   this->dist_ratio_pdf[20][0] = 1.00;
   this->dist_ratio_pdf[20][1] = 0.000;
 
-  if(this->nh.getParam("/feature_matcher/img_template_name", img_template_name))
+  if(this->nh.getParam("img_template_name", img_template_name))
   {
     ROS_INFO_STREAM("Loading template image " << img_template_name << "...");
     this->img_template = imread(img_template_name, CV_LOAD_IMAGE_COLOR);
@@ -113,10 +114,10 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   }
 }
 
-void FeatureMatcher::imageSubscriberCallback(const sensor_msgs::ImageConstPtr& msg)
+void FeatureMatcher::imageSubscriberCallback(const jps_puzzle_piece::ImageWithContourPtr& msg)
 {
   int i;
-  Mat img_input = cv_bridge::toCvShare(msg, "bgr8")->image;
+  Mat img_input = cv_bridge::toCvCopy(msg->image, "bgr8")->image;
   vector<KeyPoint> kp_piece;
   Mat desc_piece;
   double dist_ratio_threshold = 0.7;
@@ -124,7 +125,7 @@ void FeatureMatcher::imageSubscriberCallback(const sensor_msgs::ImageConstPtr& m
   // Extract SURF features from input image of puzzle piece.
   ROS_INFO("Extracting SURF features from puzzle piece...");
   this->surf_detector->detectAndCompute(
-      cv_bridge::toCvShare(msg, "bgr8")->image,
+      cv_bridge::toCvCopy(msg->image, "bgr8")->image,
       noArray(),
       kp_piece,
       desc_piece);

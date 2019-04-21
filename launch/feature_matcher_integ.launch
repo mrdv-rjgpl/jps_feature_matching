@@ -1,0 +1,5 @@
+<launch>
+	<remap from="/feature_matcher/input_image" to="/piece_parser/output_image" />
+	<include file="$(find jps_feature_matching)/launch/feature_matcher.launch" />
+	<include file="$(find jps_puzzle_piece)/launch/piece_parser_test.launch" />
+</launch>

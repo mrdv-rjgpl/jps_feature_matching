@@ -31,6 +31,7 @@ TestFeatureSupplier::TestFeatureSupplier(ros::NodeHandle& nh)
   ROS_INFO("Initializing piece image supplier...");
   this->nh = ros::NodeHandle(nh);
   this->img_transport = new image_transport::ImageTransport(this->nh);
+
   this->image_pub = this->img_transport->advertise("/piece_parser/image_piece", 1);
   this->timer = this->nh.createTimer(ros::Duration(10.0), &TestFeatureSupplier::timerCallback, this, true);
 }

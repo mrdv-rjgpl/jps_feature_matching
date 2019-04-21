@@ -16,6 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
   tf
+  jps_puzzle_piece
 )
 
 ## System dependencies are found with CMake's conventions
@@ -208,6 +209,7 @@ include_directories(
 # catkin_add_nosetests(test)
 
 add_executable(feature_matcher src/feature_matcher.cpp)
+add_dependencies(feature_matcher ${catkin_EXPORTED_TARGETS})
 target_link_libraries(feature_matcher ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 add_executable(test_feature_supplier src/test_feature_supplier.cpp)
 target_link_libraries(test_feature_supplier ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
