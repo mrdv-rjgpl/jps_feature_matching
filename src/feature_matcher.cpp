@@ -31,6 +31,10 @@ class FeatureMatcher
      */
     ros::Subscriber image_sub;
     /*
+     * \brief Image transport object
+     */
+    image_transport::ImageTransport *img_transport;
+    /*
      * \brief Minimum hessian threshold for SURF feature extraction
      */
     int min_hessian;
@@ -49,7 +53,7 @@ class FeatureMatcher
     /*
      * \brief Image publisher object
      */
-    ros::Publisher image_pub;
+    image_transport::Publisher image_pub;
     /*
      * \brief Keypoint vector for template image
      */
@@ -71,8 +75,8 @@ class FeatureMatcher
      * \brief Constructor for FeatureMatcher class
      *
      * \param[in] nh The node handler object
-     * \param[in] min_hessian The minimum Hessian threshold for SURF feature
-     * extraction
+     * \param[in] min_hessian The minimum Hessian threshold for SURF
+     * feature extraction
      *
      * \return a FeatureMatcher object
      */
@@ -81,8 +85,8 @@ class FeatureMatcher
     /*
      * \brief Callback function for image subscriber
      *
-     * \param[in] msg A message of type ImageWithContour containing the image,
-     * the contour of the piece, and its centroid
+     * \param[in] msg A message of type ImageWithContour containing the
+     * image, the contour of the piece, and its centroid
      */
     void imageSubscriberCallback(
         const jps_puzzle_piece::ImageWithContourPtr& msg);
@@ -94,6 +98,7 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 
   ROS_INFO("Initializing feature matcher...");
   this->nh = nh;
+  this->img_transport = new image_transport::ImageTransport(this->nh);
   this->min_hessian = min_hessian;
   this->surf_detector = SURF::create(min_hessian);
   this->image_sub = this->nh.subscribe(
@@ -101,6 +106,7 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
       1,
       &FeatureMatcher::imageSubscriberCallback,
       this);
+  this->image_pub = this->img_transport->advertise("output_image", 1000);
 
   this->dist_ratio_pdf[ 0][0] = 0.00;
   this->dist_ratio_pdf[ 0][1] = 0.000;
@@ -177,6 +183,7 @@ void FeatureMatcher::imageSubscriberCallback(
   Mat img_template_cp;
   Ptr<DescriptorMatcher> matcher;
   Scalar colour(int(0.741 * 256), int(0.447 * 256), int(0.000 * 256));
+  sensor_msgs::ImagePtr image_msg;
   vector<DMatch> good_matches;
   vector<KeyPoint> kp_piece;
   vector<Point2f> pt_piece;
@@ -289,8 +296,8 @@ void FeatureMatcher::imageSubscriberCallback(
       vector<char>(),
       DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
-  imshow("Good matches", img_matches);
-  waitKey(0);
+  image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img_matches).toImageMsg();
+  this->image_pub.publish(image_msg);
 }
 
 int main(int argc, char **argv)
