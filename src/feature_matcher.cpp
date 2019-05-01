@@ -43,6 +43,10 @@ class FeatureMatcher
      */
     Mat img_template;
     /*
+     * \brief Piece template
+     */
+    Mat piece_template;
+    /*
      * \brief Descriptor matrix for template image
      */
     Mat desc_template;
@@ -63,12 +67,9 @@ class FeatureMatcher
      */
     Ptr<SURF> surf_detector;
     /*
-     * \brief Probability Distribution Function of validity
-     *
-     * \details The validity PDF is computed with respect to the ratio
-     * of the smallest to the second smallest distances.
+     * \brief Extract piece positions from the piece template
      */
-    double dist_ratio_pdf[21][2];
+    void getPieceTemplate(string piece_template_name);
 
   public:
     /*
@@ -94,7 +95,14 @@ class FeatureMatcher
 
 FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 {
+  int i;
+  Mat piece_template;
+  Mat piece_template_bin;
+  Mat piece_template_gray;
+  Mat piece_template_temp;
   string img_template_name;
+  string piece_template_name;
+  vector< vector<Point> > piece_contours;
 
   ROS_INFO("Initializing feature matcher...");
   this->nh = nh;
@@ -107,49 +115,6 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
       &FeatureMatcher::imageSubscriberCallback,
       this);
   this->image_pub = this->img_transport->advertise("output_image", 1000);
-
-  this->dist_ratio_pdf[ 0][0] = 0.00;
-  this->dist_ratio_pdf[ 0][1] = 0.000;
-  this->dist_ratio_pdf[ 1][0] = 0.05;
-  this->dist_ratio_pdf[ 1][1] = 0.000;
-  this->dist_ratio_pdf[ 2][0] = 0.10;
-  this->dist_ratio_pdf[ 2][1] = 0.000;
-  this->dist_ratio_pdf[ 3][0] = 0.15;
-  this->dist_ratio_pdf[ 3][1] = 0.000;
-  this->dist_ratio_pdf[ 4][0] = 0.20;
-  this->dist_ratio_pdf[ 4][1] = 0.025;
-  this->dist_ratio_pdf[ 5][0] = 0.25;
-  this->dist_ratio_pdf[ 5][1] = 0.050;
-  this->dist_ratio_pdf[ 6][0] = 0.30;
-  this->dist_ratio_pdf[ 6][1] = 0.150;
-  this->dist_ratio_pdf[ 7][0] = 0.35;
-  this->dist_ratio_pdf[ 7][1] = 0.250;
-  this->dist_ratio_pdf[ 8][0] = 0.40;
-  this->dist_ratio_pdf[ 8][1] = 0.275;
-  this->dist_ratio_pdf[ 9][0] = 0.45;
-  this->dist_ratio_pdf[ 9][1] = 0.300;
-  this->dist_ratio_pdf[10][0] = 0.50;
-  this->dist_ratio_pdf[10][1] = 0.250;
-  this->dist_ratio_pdf[11][0] = 0.55;
-  this->dist_ratio_pdf[11][1] = 0.200;
-  this->dist_ratio_pdf[12][0] = 0.60;
-  this->dist_ratio_pdf[12][1] = 0.155;
-  this->dist_ratio_pdf[13][0] = 0.65;
-  this->dist_ratio_pdf[13][1] = 0.110;
-  this->dist_ratio_pdf[14][0] = 0.70;
-  this->dist_ratio_pdf[14][1] = 0.085;
-  this->dist_ratio_pdf[15][0] = 0.75;
-  this->dist_ratio_pdf[15][1] = 0.060;
-  this->dist_ratio_pdf[16][0] = 0.80;
-  this->dist_ratio_pdf[16][1] = 0.045;
-  this->dist_ratio_pdf[17][0] = 0.85;
-  this->dist_ratio_pdf[17][1] = 0.030;
-  this->dist_ratio_pdf[18][0] = 0.90;
-  this->dist_ratio_pdf[18][1] = 0.020;
-  this->dist_ratio_pdf[19][0] = 0.95;
-  this->dist_ratio_pdf[19][1] = 0.010;
-  this->dist_ratio_pdf[20][0] = 1.00;
-  this->dist_ratio_pdf[20][1] = 0.000;
 
   if(this->nh.getParam("img_template_name", img_template_name))
   {
@@ -168,6 +133,56 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   else
   {
     ROS_ERROR("Failed to get parameter 'img_template_name'.");
+  }
+
+  if(this->nh.getParam("piece_template_name", piece_template_name))
+  {
+    ROS_INFO_STREAM("Loading and resizing piece template " << piece_template_name << "...");
+    piece_template_temp = imread(piece_template_name, CV_LOAD_IMAGE_COLOR);
+    resize(piece_template_temp, piece_template, this->img_template.size());
+    ROS_INFO("Binarizing and thresholding piece template...");
+    piece_template_gray = Mat(piece_template.size(), CV_8UC1);
+    piece_template_bin = Mat(piece_template.size(), CV_8UC1);
+    cvtColor(piece_template, piece_template_gray, CV_RGB2GRAY);
+    threshold(piece_template_gray, piece_template_bin, 100, 255, THRESH_BINARY_INV);
+    vector<Vec4i> contour_heirarchy;
+    findContours(piece_template_bin, piece_contours, contour_heirarchy, CV_RETR_TREE, CV_CHAIN_APPROX_NONE);
+    Mat contour_display = Mat::zeros(piece_template.size(), CV_8UC3);
+    Scalar colour(int(0.741 * 256), int(0.447 * 256), int(0.000 * 256));
+
+    for(i = 0; i < contour_heirarchy.size(); ++i)
+    {
+      if(contour_heirarchy[i][3] < 0)
+      {
+        contour_heirarchy.erase(contour_heirarchy.begin() + i);
+        piece_contours.erase(piece_contours.begin() + i);
+
+        break;
+      }
+      else
+      {
+        // No operation
+      }
+    }
+
+    for(i = 0; i < contour_heirarchy.size(); ++i)
+    {
+      ROS_INFO_STREAM("Piece template contour " << i << ": ["
+          << contour_heirarchy[i][0] << ", "
+          << contour_heirarchy[i][1] << ", "
+          << contour_heirarchy[i][2] << ", "
+          << contour_heirarchy[i][3] << "]");
+    }
+
+    ROS_INFO_STREAM(piece_contours.size() << " contours found.");
+
+    drawContours(contour_display, piece_contours, 1, colour, 2);
+    imshow("Contour Display", contour_display);
+    waitKey(0);
+  }
+  else
+  {
+    ROS_ERROR("Failed to get parameter 'piece_template_name'.");
   }
 }
 
