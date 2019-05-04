@@ -208,6 +208,11 @@ void FeatureMatcher::imageSubscriberCallback(
   vector< vector<Point> > pt_template_contours;
   vector< vector<Point2f> > pt_piece_contours_f;
   vector< vector<Point2f> > pt_template_contours_f;
+  Mat desc_piece_f = cv_bridge::toCvCopy(msg->surf_desc, "")->image;
+
+  ROS_INFO_STREAM("desc_piece_f.size() = " << desc_piece_f.size());
+  ROS_INFO_STREAM("desc_piece_f.type() = " << desc_piece_f.type());
+  ROS_INFO_STREAM("");
 
   // Extract SURF features from input image of puzzle piece.
   ROS_INFO("Extracting SURF features from puzzle piece...");
