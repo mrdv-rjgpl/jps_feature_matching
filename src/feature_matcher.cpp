@@ -213,7 +213,6 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
               kp_template[i].pt,
               false) > 0)
         {
-          ROS_INFO_STREAM("SURF feature " << i << " is in piece " << j << ".");
           this->kp_piece_indices.push_back(j);
           break;
         }
@@ -248,13 +247,20 @@ void FeatureMatcher::imageSubscriberCallback(
   sensor_msgs::ImagePtr image_pub_msg;
   vector< vector<DMatch> > knn_matches;
   // Good SURF matches, binned according to the piece in the template.
-  vector< vector<DMatch> > good_matches(this->piece_contours_f.size());
+  vector< vector<DMatch> > good_matches;
   // SURF feature points in the puzzle piece,
   // binned according to the template piece they are matched to.
-  vector< vector<Point2f> > pt_piece(this->piece_contours_f.size());
+  vector< vector<Point2f> > pt_piece;
   // SURF feature points from the template,
   // binned according the piece they lie in.
   vector< vector<Point2f> > pt_template(this->piece_contours_f.size());
+
+  for(i = 0; i < this->piece_contours_f.size(); ++i)
+  {
+    good_matches.push_back(vector<DMatch>());
+    pt_piece.push_back(vector<Point2f>());
+    pt_template.push_back(vector<Point2f>());
+  }
 
   // Compare with SURF features extracted from template image.
   // https://docs.opencv.org/3.4/d5/d6f/tutorial_feature_flann_matcher.html
@@ -269,12 +275,16 @@ void FeatureMatcher::imageSubscriberCallback(
     {
       // Determine which piece in the template this match throws.
       j = this->kp_piece_indices[knn_matches[i][0].trainIdx];
+      ROS_INFO_STREAM("Feature " << i << " matched to piece " << j << ".");
       // Populate the good matches, piece points,
       // and template points accordingly.
+      ROS_INFO("Updating good matches...");
       good_matches[j].push_back(knn_matches[i][0]);
+      ROS_INFO_STREAM("Updating piece point list [" << knn_matches[i][0].queryIdx << "/" << msg->surf_key_points.size() << "]...");
       pt_piece[j].push_back(Point2f(
             msg->surf_key_points[knn_matches[i][0].queryIdx].x,
             msg->surf_key_points[knn_matches[i][0].queryIdx].y));
+      ROS_INFO_STREAM("Updating template point list [" << knn_matches[i][0].trainIdx << "/" << this->kp_template.size() << "]...");
       pt_template[j].push_back(
           this->kp_template[knn_matches[i][0].trainIdx].pt);
     }
@@ -304,6 +314,18 @@ void FeatureMatcher::imageSubscriberCallback(
       pt_piece[likely_piece_index],
       pt_template[likely_piece_index],
       CV_RANSAC);
+
+  ROS_INFO_STREAM("Homographic transformation: " << h.rows << "x" << h.cols);
+
+  for(i = 0; i < h.rows; ++i)
+  {
+    for(j = 0; j < h.cols; ++j)
+    {
+      ROS_INFO_STREAM("h(" << i << ", " << j << ") = " << h.at<double>(i, j));
+    }
+  }
+
+  // TODO: Publish the matched SURF features and other things as a message.
 }
 
 int main(int argc, char **argv)

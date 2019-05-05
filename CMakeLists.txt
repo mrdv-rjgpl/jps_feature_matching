@@ -211,5 +211,8 @@ include_directories(
 add_executable(feature_matcher src/feature_matcher.cpp)
 add_dependencies(feature_matcher ${catkin_EXPORTED_TARGETS})
 target_link_libraries(feature_matcher ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+add_executable(matched_feature_viz src/matched_feature_viz.cpp)
+add_dependencies(matched_feature_viz ${catkin_EXPORTED_TARGETS})
+target_link_libraries(matched_feature_viz ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 add_executable(test_feature_supplier src/test_feature_supplier.cpp)
 target_link_libraries(test_feature_supplier ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
