@@ -244,6 +244,7 @@ void FeatureMatcher::imageSubscriberCallback(
       msg->surf_desc,
       sensor_msgs::image_encodings::TYPE_32FC1)->image;
   Mat h;
+  Mat h_inv;
   sensor_msgs::ImagePtr image_pub_msg;
   vector< vector<DMatch> > knn_matches;
   // Good SURF matches, binned according to the piece in the template.
@@ -275,16 +276,12 @@ void FeatureMatcher::imageSubscriberCallback(
     {
       // Determine which piece in the template this match throws.
       j = this->kp_piece_indices[knn_matches[i][0].trainIdx];
-      ROS_INFO_STREAM("Feature " << i << " matched to piece " << j << ".");
       // Populate the good matches, piece points,
       // and template points accordingly.
-      ROS_INFO("Updating good matches...");
       good_matches[j].push_back(knn_matches[i][0]);
-      ROS_INFO_STREAM("Updating piece point list [" << knn_matches[i][0].queryIdx << "/" << msg->surf_key_points.size() << "]...");
       pt_piece[j].push_back(Point2f(
             msg->surf_key_points[knn_matches[i][0].queryIdx].x,
             msg->surf_key_points[knn_matches[i][0].queryIdx].y));
-      ROS_INFO_STREAM("Updating template point list [" << knn_matches[i][0].trainIdx << "/" << this->kp_template.size() << "]...");
       pt_template[j].push_back(
           this->kp_template[knn_matches[i][0].trainIdx].pt);
     }
@@ -314,17 +311,10 @@ void FeatureMatcher::imageSubscriberCallback(
       pt_piece[likely_piece_index],
       pt_template[likely_piece_index],
       CV_RANSAC);
-
-  ROS_INFO_STREAM("Homographic transformation: " << h.rows << "x" << h.cols);
-
-  for(i = 0; i < h.rows; ++i)
-  {
-    for(j = 0; j < h.cols; ++j)
-    {
-      ROS_INFO_STREAM("h(" << i << ", " << j << ") = " << h.at<double>(i, j));
-    }
-  }
-
+  h_inv = findHomography(
+      pt_template[likely_piece_index],
+      pt_piece[likely_piece_index],
+      CV_RANSAC);
   // TODO: Publish the matched SURF features and other things as a message.
 }
 
