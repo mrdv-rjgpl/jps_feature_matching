@@ -1,7 +1,4 @@
 <launch>
-	<remap from="/feature_matcher/input_image" to="/piece_parser/output_image" />
 	<include file="$(find jps_feature_matching)/launch/feature_matcher.launch" />
 	<include file="$(find jps_puzzle_piece)/launch/unit_test_piece_parser.launch" />
-	<node pkg="rqt_gui" type="rqt_gui" name="rqt_gui_node" ns="rqt_gui" />
-	<node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconf_node" />
 </launch>

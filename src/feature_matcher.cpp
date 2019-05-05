@@ -15,8 +15,8 @@
 
 #include <algorithm>
 #include <functional>
-
 #include <exception>
+
 #include "jps_puzzle_piece/ImageWithContour.h"
 
 using namespace cv;
@@ -59,9 +59,18 @@ class FeatureMatcher
      */
     image_transport::Publisher image_pub;
     /*
+     * \brief SURF feature matcher
+     */
+    Ptr<DescriptorMatcher> matcher;
+    /*
      * \brief Keypoint vector for template image
      */
     vector<KeyPoint> kp_template;
+    /*
+     * \brief List of piece indices for each key point in the template image
+     */
+    vector<int> kp_piece_indices;
+    vector< vector<Point2f> > piece_contours_f;
     /*
      * \brief SURF detector object
      */
@@ -96,6 +105,9 @@ class FeatureMatcher
 FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 {
   int i;
+  int j;
+  int k;
+  Mat contour_display;
   Mat piece_template;
   Mat piece_template_bin;
   Mat piece_template_gray;
@@ -103,8 +115,10 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   string img_template_name;
   string piece_template_name;
   vector< vector<Point> > piece_contours;
+  vector<Vec4i> contour_heirarchy;
 
-  ROS_INFO("Initializing feature matcher...");
+  // Initialize the feature matching node variables.
+  ROS_INFO("Initializing feature matching node...");
   this->nh = nh;
   this->img_transport = new image_transport::ImageTransport(this->nh);
   this->min_hessian = min_hessian;
@@ -118,17 +132,16 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 
   if(this->nh.getParam("img_template_name", img_template_name))
   {
+    // Load the template image containing the solved puzzle.
     ROS_INFO_STREAM("Loading template image " << img_template_name << "...");
     this->img_template = imread(img_template_name, CV_LOAD_IMAGE_COLOR);
-    ROS_INFO("Extracting SURF features from template image...");
+    // Extract and store SURF features from the template image.
+    ROS_INFO_STREAM("Extracting SURF features from template image...");
     this->surf_detector->detectAndCompute(
         this->img_template,
         noArray(),
         this->kp_template,
         this->desc_template);
-    ROS_INFO_STREAM(
-        this->kp_template.size()
-        << " template elements extracted.");
   }
   else
   {
@@ -137,27 +150,52 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 
   if(this->nh.getParam("piece_template_name", piece_template_name))
   {
-    ROS_INFO_STREAM("Loading and resizing piece template " << piece_template_name << "...");
+    // Load the template image containing the contours of the puzzle pieces.
+    ROS_INFO_STREAM("Loading piece template " << piece_template_name << "...");
     piece_template_temp = imread(piece_template_name, CV_LOAD_IMAGE_COLOR);
-    resize(piece_template_temp, piece_template, this->img_template.size());
-    ROS_INFO("Binarizing and thresholding piece template...");
-    piece_template_gray = Mat(piece_template.size(), CV_8UC1);
-    piece_template_bin = Mat(piece_template.size(), CV_8UC1);
-    cvtColor(piece_template, piece_template_gray, CV_RGB2GRAY);
-    threshold(piece_template_gray, piece_template_bin, 100, 255, THRESH_BINARY_INV);
-    vector<Vec4i> contour_heirarchy;
-    findContours(piece_template_bin, piece_contours, contour_heirarchy, CV_RETR_TREE, CV_CHAIN_APPROX_NONE);
-    Mat contour_display = Mat::zeros(piece_template.size(), CV_8UC3);
-    Scalar colour(int(0.741 * 256), int(0.447 * 256), int(0.000 * 256));
 
+    // Resize the piece template to match the image template.
+    ROS_INFO_STREAM(
+        "Resizing piece template ("
+        << piece_template_temp.rows << "x" << piece_template_temp.cols
+        << ") to match image template ("
+        << this->img_template.rows << "x" << this->img_template.cols
+        << ")...");
+    resize(piece_template_temp, piece_template, this->img_template.size());
+
+    // Grayscale and binarize the piece template with a hard coded threshold.
+    ROS_INFO("Grayscaling and binarizing piece template...");
+    piece_template_gray = Mat(piece_template.size(), CV_8UC1);
+    cvtColor(piece_template, piece_template_gray, CV_RGB2GRAY);
+    piece_template_bin = Mat(piece_template.size(), CV_8UC1);
+    threshold(
+        piece_template_gray, piece_template_bin, 100, 255, THRESH_BINARY_INV);
+
+    // Find the piece contours in the piece template.
+    ROS_INFO("Finding piece contours in piece template...");
+    findContours(
+        piece_template_bin,
+        piece_contours,
+        contour_heirarchy,
+        CV_RETR_TREE,
+        CV_CHAIN_APPROX_NONE);
+    contour_display = Mat::zeros(piece_template.size(), CV_8UC3);
+    Scalar colour(int(0.741 * 255), int(0.447 * 255), int(0.000 * 255));
+
+    // Prune the outermost border from the piece contour list.
     for(i = 0; i < contour_heirarchy.size(); ++i)
     {
-      if(contour_heirarchy[i][3] < 0)
+      if(contour_heirarchy[i][3] >= 0)
       {
-        contour_heirarchy.erase(contour_heirarchy.begin() + i);
-        piece_contours.erase(piece_contours.begin() + i);
+        // Add the current piece contour to piece_contours_f.
+        this->piece_contours_f.push_back(vector<Point2f>());
+        k = this->piece_contours_f.size() - 1;
 
-        break;
+        for(j = 0; j < piece_contours[i].size(); ++j)
+        {
+          this->piece_contours_f[k].push_back(
+              Point2f(piece_contours[i][j].x, piece_contours[i][j].y));
+        }
       }
       else
       {
@@ -165,25 +203,35 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
       }
     }
 
-    for(i = 0; i < contour_heirarchy.size(); ++i)
+    // Catalog the SURF features according to their puzzle piece location.
+    for(i = 0; i < this->kp_template.size(); ++i)
     {
-      ROS_INFO_STREAM("Piece template contour " << i << ": ["
-          << contour_heirarchy[i][0] << ", "
-          << contour_heirarchy[i][1] << ", "
-          << contour_heirarchy[i][2] << ", "
-          << contour_heirarchy[i][3] << "]");
+      for(j = 0; j < this->piece_contours_f.size(); ++j)
+      {
+        if(pointPolygonTest(
+              this->piece_contours_f[j],
+              kp_template[i].pt,
+              false) > 0)
+        {
+          ROS_INFO_STREAM("SURF feature " << i << " is in piece " << j << ".");
+          this->kp_piece_indices.push_back(j);
+          break;
+        }
+        else
+        {
+          // No operation
+        }
+      }
     }
-
-    ROS_INFO_STREAM(piece_contours.size() << " contours found.");
-
-    drawContours(contour_display, piece_contours, 1, colour, 2);
-    imshow("Contour Display", contour_display);
-    waitKey(0);
   }
   else
   {
     ROS_ERROR("Failed to get parameter 'piece_template_name'.");
   }
+
+  ROS_INFO("Instantiating SURF feature matcher...");
+  this->matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+  ROS_INFO("Waiting for messages on topic 'input_image'...");
 }
 
 void FeatureMatcher::imageSubscriberCallback(
@@ -191,74 +239,43 @@ void FeatureMatcher::imageSubscriberCallback(
 {
   double dist_ratio_threshold = 0.7;
   int i;
-  Mat desc_piece;
+  int j;
+  int likely_piece_index = 0;
+  Mat desc_piece = cv_bridge::toCvCopy(
+      msg->surf_desc,
+      sensor_msgs::image_encodings::TYPE_32FC1)->image;
   Mat h;
-  Mat img_input = cv_bridge::toCvCopy(msg->image, "bgr8")->image;
-  Mat img_matches;
-  Mat img_template_cp;
-  Ptr<DescriptorMatcher> matcher;
-  Scalar colour(int(0.741 * 256), int(0.447 * 256), int(0.000 * 256));
-  sensor_msgs::ImagePtr image_msg;
-  vector<DMatch> good_matches;
-  vector<KeyPoint> kp_piece;
-  vector<Point2f> pt_piece;
-  vector<Point2f> pt_template;
+  sensor_msgs::ImagePtr image_pub_msg;
   vector< vector<DMatch> > knn_matches;
-  vector< vector<Point> > pt_piece_contours;
-  vector< vector<Point> > pt_template_contours;
-  vector< vector<Point2f> > pt_piece_contours_f;
-  vector< vector<Point2f> > pt_template_contours_f;
-  Mat desc_piece_f = cv_bridge::toCvCopy(msg->surf_desc, "")->image;
-
-  ROS_INFO_STREAM("desc_piece_f.size() = " << desc_piece_f.size());
-  ROS_INFO_STREAM("desc_piece_f.type() = " << desc_piece_f.type());
-  ROS_INFO_STREAM("");
-
-  // Extract SURF features from input image of puzzle piece.
-  ROS_INFO("Extracting SURF features from puzzle piece...");
-  this->surf_detector->detectAndCompute(
-      cv_bridge::toCvCopy(msg->image, "bgr8")->image,
-      noArray(),
-      kp_piece,
-      desc_piece);
-  ROS_INFO_STREAM(
-      kp_piece.size()
-      << " template elements extracted from puzzle piece.");
+  // Good SURF matches, binned according to the piece in the template.
+  vector< vector<DMatch> > good_matches(this->piece_contours_f.size());
+  // SURF feature points in the puzzle piece,
+  // binned according to the template piece they are matched to.
+  vector< vector<Point2f> > pt_piece(this->piece_contours_f.size());
+  // SURF feature points from the template,
+  // binned according the piece they lie in.
+  vector< vector<Point2f> > pt_template(this->piece_contours_f.size());
 
   // Compare with SURF features extracted from template image.
   // https://docs.opencv.org/3.4/d5/d6f/tutorial_feature_flann_matcher.html
-  matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
-  ROS_INFO("Running k-NN matching...");
-  matcher->knnMatch(desc_piece, this->desc_template, knn_matches, 2);
+  ROS_INFO_STREAM("Matching SURF features from image with template...");
+  this->matcher->knnMatch(desc_piece, this->desc_template, knn_matches, 2);
   ROS_INFO("Running comparison for good matches...");
-  pt_piece_contours.push_back(vector<Point>());
-  pt_piece_contours_f.push_back(vector<Point2f>());
-
-  for(i = 0; i < msg->contour_px.size(); ++i)
-  {
-    pt_piece_contours[0].push_back(
-        Point(msg->contour_px[i].x, msg->contour_px[i].y));
-    pt_piece_contours_f[0].push_back(
-        Point2f(msg->contour_px[i].x, msg->contour_px[i].y));
-  }
-
-  ROS_INFO_STREAM(
-      pt_piece_contours_f[0].size()
-      << " contour points obtained for current piece.");
 
   for(i = 0; i < knn_matches.size(); ++i)
   {
     if((knn_matches[i][0].distance
-          < dist_ratio_threshold * knn_matches[i][1].distance)
-        && (pointPolygonTest(
-            pt_piece_contours_f[0],
-            kp_piece[knn_matches[i][0].queryIdx].pt,
-            false)
-          > 0))
+          < dist_ratio_threshold * knn_matches[i][1].distance))
     {
-      good_matches.push_back(knn_matches[i][0]);
-      pt_piece.push_back(kp_piece[knn_matches[i][0].queryIdx].pt);
-      pt_template.push_back(
+      // Determine which piece in the template this match throws.
+      j = this->kp_piece_indices[knn_matches[i][0].trainIdx];
+      // Populate the good matches, piece points,
+      // and template points accordingly.
+      good_matches[j].push_back(knn_matches[i][0]);
+      pt_piece[j].push_back(Point2f(
+            msg->surf_key_points[knn_matches[i][0].queryIdx].x,
+            msg->surf_key_points[knn_matches[i][0].queryIdx].y));
+      pt_template[j].push_back(
           this->kp_template[knn_matches[i][0].trainIdx].pt);
     }
     else
@@ -267,57 +284,26 @@ void FeatureMatcher::imageSubscriberCallback(
     }
   }
 
-  ROS_INFO_STREAM(good_matches.size() << " good SURF matches found.");
-  ROS_INFO("Drawing piece centroid...");
-  circle(
-       img_input,
-       Point2f(msg->centroid_px.x, msg->centroid_px.y),
-       16,
-       colour,
-       -1,
-       8,
-       0);
-  ROS_INFO("Drawing piece contour...");
-  // Draw the piece contour with a line thickness of 2.
-  drawContours(img_input, pt_piece_contours, 0, colour, 2);
-
-  ROS_INFO(
-      "Computing homographic transformation from piece to template...");
-  h = findHomography(pt_piece, pt_template, CV_RANSAC);
-  pt_template_contours_f.push_back(vector<Point2f>(
-        pt_piece_contours_f[0].size()));
-
-  ROS_INFO("Transforming piece contour into image template...");
-  perspectiveTransform(pt_piece_contours_f[0], pt_template_contours_f[0], h);
-  ROS_INFO("Transforming piece contour into image template...");
-  img_template_cp = this->img_template.clone();
-  pt_template_contours.push_back(vector<Point>());
-
-  for(i = 0; i < pt_template_contours_f[0].size(); ++i)
+  // Determine the index of the most likely piece to which this corresponds.
+  for(i = 0; i < good_matches.size(); ++i)
   {
-    pt_template_contours[0].push_back(
-        Point(
-          (int) pt_template_contours_f[0][i].x,
-          (int) pt_template_contours_f[0][i].y));
+    if(good_matches[i].size() > good_matches[likely_piece_index].size())
+    {
+      likely_piece_index = i;
+    }
+    else
+    {
+      // No operation
+    }
   }
 
-  drawContours(img_template_cp, pt_template_contours, 0, colour, 2);
-
-  ROS_INFO("Drawing matched SURF features on piece and template...");
-  drawMatches(
-      img_input,
-      kp_piece,
-      img_template_cp,
-      this->kp_template,
-      good_matches,
-      img_matches,
-      Scalar::all(-1),
-      Scalar::all(-1),
-      vector<char>(),
-      DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
-
-  image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img_matches).toImageMsg();
-  this->image_pub.publish(image_msg);
+  // Compute the homographic transformation.
+  ROS_INFO(
+      "Computing homographic transformation from piece to template...");
+  h = findHomography(
+      pt_piece[likely_piece_index],
+      pt_template[likely_piece_index],
+      CV_RANSAC);
 }
 
 int main(int argc, char **argv)
