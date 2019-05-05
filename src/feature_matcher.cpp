@@ -17,6 +17,7 @@
 #include <functional>
 #include <exception>
 
+#include "jps_feature_matching/ImageTransform.h"
 #include "jps_puzzle_piece/ImageWithContour.h"
 
 using namespace cv;
@@ -26,6 +27,10 @@ using namespace std;
 class FeatureMatcher
 {
   private:
+    /*
+     * \brief Transform publisher object
+     */
+    ros::Publisher transform_pub;
     /*
      * \brief Image subscriber object
      */
@@ -70,7 +75,14 @@ class FeatureMatcher
      * \brief List of piece indices for each key point in the template image
      */
     vector<int> kp_piece_indices;
+    /*
+     * \brief Contours of each piece extracted from the template
+     */
     vector< vector<Point2f> > piece_contours_f;
+    /*
+     * \brief Centroid and two other points to form x-y axes for each piece
+     */
+    vector< vector<Point2f> > piece_central_points;
     /*
      * \brief SURF detector object
      */
@@ -129,6 +141,10 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
       &FeatureMatcher::imageSubscriberCallback,
       this);
   this->image_pub = this->img_transport->advertise("output_image", 1000);
+  this->transform_pub =
+    this->nh.advertise<jps_feature_matching::ImageTransform>(
+      "homographic_transform",
+      1000);
 
   if(this->nh.getParam("img_template_name", img_template_name))
   {
@@ -196,6 +212,18 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
           this->piece_contours_f[k].push_back(
               Point2f(piece_contours[i][j].x, piece_contours[i][j].y));
         }
+
+        // Find the centroid of the piece and two points to form the x-y axes.
+        this->piece_central_points.push_back(vector<Point2f>());
+        Moments m = moments(this->piece_contours_f[i], false);
+        this->piece_central_points[i].push_back(
+            Point2f(m.m10 / m.m00, m.m01 / m.m00));
+        this->piece_central_points[i].push_back(Point2f(
+              this->piece_central_points[i][0].x + 32.0,
+              this->piece_central_points[i][0].y));
+        this->piece_central_points[i].push_back(Point2f(
+              this->piece_central_points[i][0].x,
+              this->piece_central_points[i][0].y + 32.0));
       }
       else
       {
@@ -307,15 +335,35 @@ void FeatureMatcher::imageSubscriberCallback(
   // Compute the homographic transformation.
   ROS_INFO(
       "Computing homographic transformation from piece to template...");
-  h = findHomography(
-      pt_piece[likely_piece_index],
-      pt_template[likely_piece_index],
-      CV_RANSAC);
   h_inv = findHomography(
       pt_template[likely_piece_index],
       pt_piece[likely_piece_index],
       CV_RANSAC);
-  // TODO: Publish the matched SURF features and other things as a message.
+
+  jps_feature_matching::ImageTransform img_tf_msg;
+  img_tf_msg.header.stamp = ros::Time::now();
+  cv_bridge::CvImage(
+      img_tf_msg.header,
+      sensor_msgs::image_encodings::TYPE_32FC1,
+      h_inv).toImageMsg(
+        img_tf_msg.homographic_transform);
+  img_tf_msg.piece_index = (uint8_t) likely_piece_index;
+  vector<Point2f> transformed_points(this->piece_central_points[likely_piece_index].size());
+  perspectiveTransform(
+      this->piece_central_points[likely_piece_index],
+      transformed_points,
+      h_inv);
+  geometry_msgs::Point pt_temp;
+
+  for(i = 0; i < transformed_points.size(); ++i)
+  {
+    pt_temp.x = transformed_points[i].x;
+    pt_temp.y = transformed_points[i].y;
+    img_tf_msg.transformed_points.push_back(pt_temp);
+  }
+
+  ROS_INFO("Publishing homography and transformed central points...");
+  this->transform_pub.publish(img_tf_msg);
 }
 
 int main(int argc, char **argv)

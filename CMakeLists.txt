@@ -56,7 +56,7 @@ find_package(OpenCV REQUIRED)
 
 ## Generate messages in the 'msg' folder
 add_message_files(
-  DIRECTORY msg FILES ImageWithFeatures.msg
+  DIRECTORY msg FILES ImageTransform.msg
 )
 
 ## Generate services in the 'srv' folder
