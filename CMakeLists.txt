@@ -77,6 +77,7 @@ add_message_files(
 generate_messages(
   DEPENDENCIES
   sensor_msgs
+  geometry_msgs
   std_msgs
 )
 

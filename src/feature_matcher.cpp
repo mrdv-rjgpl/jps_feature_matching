@@ -204,6 +204,9 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
       if(contour_heirarchy[i][3] >= 0)
       {
         // Add the current piece contour to piece_contours_f.
+        ROS_INFO_STREAM(
+            "Adding current contour (" << i
+            << ") to list of valid pieces...");
         this->piece_contours_f.push_back(vector<Point2f>());
         k = this->piece_contours_f.size() - 1;
 
@@ -214,16 +217,19 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
         }
 
         // Find the centroid of the piece and two points to form the x-y axes.
+        ROS_INFO("Determining centroid of current piece...");
+        Moments m = moments(piece_contours[i], false);
+        ROS_INFO("Expanding vector of centroid and x-y axis points...");
         this->piece_central_points.push_back(vector<Point2f>());
-        Moments m = moments(this->piece_contours_f[i], false);
-        this->piece_central_points[i].push_back(
+        ROS_INFO("Saving centroid and x-y axis points for current piece...");
+        this->piece_central_points[k].push_back(
             Point2f(m.m10 / m.m00, m.m01 / m.m00));
-        this->piece_central_points[i].push_back(Point2f(
-              this->piece_central_points[i][0].x + 32.0,
-              this->piece_central_points[i][0].y));
-        this->piece_central_points[i].push_back(Point2f(
-              this->piece_central_points[i][0].x,
-              this->piece_central_points[i][0].y + 32.0));
+        this->piece_central_points[k].push_back(Point2f(
+              this->piece_central_points[k][0].x + 32.0,
+              this->piece_central_points[k][0].y));
+        this->piece_central_points[k].push_back(Point2f(
+              this->piece_central_points[k][0].x,
+              this->piece_central_points[k][0].y + 32.0));
       }
       else
       {
@@ -342,6 +348,7 @@ void FeatureMatcher::imageSubscriberCallback(
 
   jps_feature_matching::ImageTransform img_tf_msg;
   img_tf_msg.header.stamp = ros::Time::now();
+  img_tf_msg.image = msg->image;
   cv_bridge::CvImage(
       img_tf_msg.header,
       sensor_msgs::image_encodings::TYPE_32FC1,
