@@ -286,9 +286,11 @@ void FeatureMatcher::imageSubscriberCallback(
   Mat h;
   Mat h_inv;
   Mat template_vis = this->img_template.clone();
+  Mat img_piece = cv_bridge::toCvCopy(msg->image, "bgr8")->image;
   Mat img_vis;
   geometry_msgs::Point pt_temp;
   jps_feature_matching::ImageTransform img_tf_msg;
+  Point2f piece_centroid;
   Scalar colour(int(0.741 * 255), int(0.447 * 255), int(0.000 * 255));
   sensor_msgs::ImagePtr vis_msg;
   vector< vector<DMatch> > knn_matches;
@@ -332,15 +334,24 @@ void FeatureMatcher::imageSubscriberCallback(
 
   for(i = 0; i < knn_matches.size(); ++i)
   {
+    // ROS_INFO_STREAM("Checking knn_matches[" << i << "] of size " << knn_matches[i].size() << "...");
+
     if((knn_matches[i][0].distance
-          < dist_ratio_threshold * knn_matches[i][1].distance))
+          < dist_ratio_threshold * knn_matches[i][1].distance)
+        && (knn_matches[i][0].trainIdx < this->kp_piece_indices.size())
+        && (this->kp_piece_indices[knn_matches[i][0].trainIdx] < pt_piece.size())
+        && (this->kp_piece_indices[knn_matches[i][0].trainIdx] < pt_template.size())
+        && (knn_matches[i][0].queryIdx < msg->surf_key_points.size()))
     {
       // Determine which piece in the template this match throws.
+      // ROS_INFO_STREAM("knn_matches[i][0].trainIdx  = " << knn_matches[i][0].trainIdx << "/" << this->kp_piece_indices.size() - 1);
       j = this->kp_piece_indices[knn_matches[i][0].trainIdx];
+      // ROS_INFO_STREAM("j = " << j << "/" << pt_piece.size() - 1 << " " << j << "/" << pt_template.size() - 1);
       // Populate the good matches, piece points,
       // and template points accordingly.
       good_matches[j].push_back(knn_matches[i][0]);
       good_matches_combined.push_back(knn_matches[i][0]);
+      // ROS_INFO_STREAM("knn_matches[i][0].queryIdx = " << knn_matches[i][0].queryIdx << "/" << msg->surf_key_points.size());
       pt_piece[j].push_back(Point2f(
             msg->surf_key_points[knn_matches[i][0].queryIdx].x,
             msg->surf_key_points[knn_matches[i][0].queryIdx].y));
@@ -352,6 +363,8 @@ void FeatureMatcher::imageSubscriberCallback(
       // No operation
     }
   }
+
+  ROS_INFO("knn_matches successfully checked.");
 
   // Determine the index of the most likely piece to which this corresponds.
   for(i = 0; i < good_matches.size(); ++i)
@@ -369,30 +382,28 @@ void FeatureMatcher::imageSubscriberCallback(
   // Update likely piece index with estimated index.
   img_tf_msg.piece_index = (uint8_t) likely_piece_index;
 
-  // Draw contour and publish visualization message.
+  // Draw the piece contour in the visualization template.
   drawContours(template_vis, this->piece_contours_i, likely_piece_index, colour, 2);
-  ROS_INFO("Drawing SURF matches on visualization image...");
-  drawMatches(
-      cv_bridge::toCvCopy(msg->image, "bgr8")->image, kp_piece,
-      template_vis, this->kp_template,
-      good_matches_combined, img_vis,
-      Scalar::all(-1), Scalar::all(-1), vector<char>(),
-      DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
-  vis_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img_vis).toImageMsg();
-  ROS_INFO("Publishing image for visualization...");
-  this->vis_pub.publish(vis_msg);
 
-  // Compute the homographic transformation.
-  ROS_INFO_STREAM(
-      "Computing homographic transformation from piece ("
-      << pt_piece[likely_piece_index].size()
-      << " features) to template ("
-      << pt_template[likely_piece_index].size()
-      << " features)...");
-  h_inv = findHomography(
-      pt_template[likely_piece_index],
-      pt_piece[likely_piece_index],
-      CV_RANSAC);
+  if((pt_template[likely_piece_index].size() > 0)
+      && (pt_piece[likely_piece_index].size() > 0))
+  {
+    // Compute the homographic transformation.
+    ROS_INFO_STREAM(
+        "Computing homographic transformation from piece ("
+        << pt_piece[likely_piece_index].size()
+        << " features) to template ("
+        << pt_template[likely_piece_index].size()
+        << " features)...");
+    h_inv = findHomography(
+        pt_template[likely_piece_index],
+        pt_piece[likely_piece_index],
+        CV_RANSAC);
+  }
+  else
+  {
+    // No operation
+  }
 
   if(h_inv.rows > 0)
   {
@@ -404,7 +415,7 @@ void FeatureMatcher::imageSubscriberCallback(
         h_inv).toImageMsg(
           img_tf_msg.homographic_transform);
     ROS_INFO("Instantiating list of transformed points...");
-    Mat transformed_points;
+    vector<Point2f> transformed_points;
     ROS_INFO_STREAM("Running perspective transformation on "
         << this->piece_central_points[likely_piece_index].size()
         << " points with homography transformation of size "
@@ -426,21 +437,54 @@ void FeatureMatcher::imageSubscriberCallback(
         << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n");
         */
 
-    for(i = 0; i < transformed_points.cols; ++i)
+    piece_centroid.x = msg->centroid_px.x;
+    piece_centroid.y = msg->centroid_px.y;
+
+    // Run a quality check on the transformation, comparing centroids.
+    if((piece_centroid.x - transformed_points[0].x < 8.0)
+        && (piece_centroid.x - transformed_points[0].x > -8.0)
+        && (piece_centroid.y - transformed_points[0].y < 8.0)
+        && (piece_centroid.y - transformed_points[0].y > -8.0))
     {
-      ROS_INFO_STREAM("Updating point " << i << "...");
-      pt_temp.x = transformed_points.at<float>(0, i);
-      pt_temp.y = transformed_points.at<float>(1, i);
-      img_tf_msg.transformed_points.push_back(pt_temp);
+      // Update output message with transformed points.
+      for(i = 0; i < transformed_points.size(); ++i)
+      {
+        ROS_INFO_STREAM("Updating point " << i << "...");
+        pt_temp.x = transformed_points[i].x;
+        pt_temp.y = transformed_points[i].y;
+        img_tf_msg.transformed_points.push_back(pt_temp);
+      }
+
+      // Update the visualization message with the x and y axes.
+      circle(img_piece, transformed_points[0], 10, colour, 2, 8, 0);
+      line(img_piece, transformed_points[0], transformed_points[1], colour, 2, 8, 0);
+      line(img_piece, transformed_points[0], transformed_points[2], colour, 2, 8, 0);
+    }
+    else
+    {
+      // No operation
     }
   }
   else
   {
-    ROS_INFO("Transformation `h_inv` could not be computed, possibly due to too few features.");
+    ROS_INFO("Transformation `h_inv` could not be computed, possibly due to too few features matched.");
   }
 
+  // Publish the output message.
   ROS_INFO("Publishing homography and transformed central points...");
   this->transform_pub.publish(img_tf_msg);
+
+  // Publish the visualization message.
+  ROS_INFO("Drawing SURF matches on visualization image...");
+  drawMatches(
+      img_piece, kp_piece,
+      template_vis, this->kp_template,
+      good_matches_combined, img_vis,
+      Scalar::all(-1), Scalar::all(-1), vector<char>(),
+      DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+  vis_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img_vis).toImageMsg();
+  ROS_INFO("Publishing image for visualization...");
+  this->vis_pub.publish(vis_msg);
 }
 
 int main(int argc, char **argv)
