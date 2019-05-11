@@ -82,7 +82,7 @@ class FeatureMatcher
     /*
      * \brief Centroid and two other points to form x-y axes for each piece
      */
-    vector< vector<Point2f> > piece_central_points;
+    vector<Mat> piece_central_points;
     /*
      * \brief SURF detector object
      */
@@ -143,8 +143,8 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   this->image_pub = this->img_transport->advertise("output_image", 1000);
   this->transform_pub =
     this->nh.advertise<jps_feature_matching::ImageTransform>(
-      "homographic_transform",
-      1000);
+        "homographic_transform",
+        1000);
 
   if(this->nh.getParam("img_template_name", img_template_name))
   {
@@ -220,16 +220,24 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
         ROS_INFO("Determining centroid of current piece...");
         Moments m = moments(piece_contours[i], false);
         ROS_INFO("Expanding vector of centroid and x-y axis points...");
-        this->piece_central_points.push_back(vector<Point2f>());
+        this->piece_central_points.push_back(Mat::zeros(2, 3, CV_32FC1));
         ROS_INFO("Saving centroid and x-y axis points for current piece...");
-        this->piece_central_points[k].push_back(
-            Point2f(m.m10 / m.m00, m.m01 / m.m00));
-        this->piece_central_points[k].push_back(Point2f(
-              this->piece_central_points[k][0].x + 32.0,
-              this->piece_central_points[k][0].y));
-        this->piece_central_points[k].push_back(Point2f(
-              this->piece_central_points[k][0].x,
-              this->piece_central_points[k][0].y + 32.0));
+        this->piece_central_points[k].at<float>(0, 0) = m.m10 / m.m00;
+        this->piece_central_points[k].at<float>(1, 0) = m.m01 / m.m00;
+        this->piece_central_points[k].at<float>(0, 1) = this->piece_central_points[k].at<float>(0, 0) + 32.0;
+        this->piece_central_points[k].at<float>(1, 1) = this->piece_central_points[k].at<float>(1, 0);
+        this->piece_central_points[k].at<float>(0, 1) = this->piece_central_points[k].at<float>(0, 0);
+        this->piece_central_points[k].at<float>(1, 1) = this->piece_central_points[k].at<float>(1, 0) + 32.0;
+        /*
+           this->piece_central_points[k].push_back(
+           Point2f(m.m10 / m.m00, m.m01 / m.m00));
+           this->piece_central_points[k].push_back(Point2f(
+           this->piece_central_points[k][0].x + 32.0,
+           this->piece_central_points[k][0].y));
+           this->piece_central_points[k].push_back(Point2f(
+           this->piece_central_points[k][0].x,
+           this->piece_central_points[k][0].y + 32.0));
+           */
       }
       else
       {
@@ -339,38 +347,68 @@ void FeatureMatcher::imageSubscriberCallback(
   }
 
   // Compute the homographic transformation.
-  ROS_INFO(
-      "Computing homographic transformation from piece to template...");
+  ROS_INFO_STREAM(
+      "Computing homographic transformation from piece ("
+      << pt_piece[likely_piece_index].size()
+      << " features) to template ("
+      << pt_template[likely_piece_index].size()
+      << " features)...");
   h_inv = findHomography(
       pt_template[likely_piece_index],
       pt_piece[likely_piece_index],
       CV_RANSAC);
-
-  jps_feature_matching::ImageTransform img_tf_msg;
-  img_tf_msg.header.stamp = ros::Time::now();
-  img_tf_msg.image = msg->image;
-  cv_bridge::CvImage(
-      img_tf_msg.header,
-      sensor_msgs::image_encodings::TYPE_32FC1,
-      h_inv).toImageMsg(
-        img_tf_msg.homographic_transform);
-  img_tf_msg.piece_index = (uint8_t) likely_piece_index;
-  vector<Point2f> transformed_points(this->piece_central_points[likely_piece_index].size());
-  perspectiveTransform(
-      this->piece_central_points[likely_piece_index],
-      transformed_points,
-      h_inv);
-  geometry_msgs::Point pt_temp;
-
-  for(i = 0; i < transformed_points.size(); ++i)
+  if(h_inv.rows > 0)
   {
-    pt_temp.x = transformed_points[i].x;
-    pt_temp.y = transformed_points[i].y;
-    img_tf_msg.transformed_points.push_back(pt_temp);
-  }
 
-  ROS_INFO("Publishing homography and transformed central points...");
-  this->transform_pub.publish(img_tf_msg);
+    ROS_INFO("Instantiating message object...");
+    jps_feature_matching::ImageTransform img_tf_msg;
+    ROS_INFO("Populating message header...");
+    img_tf_msg.header.stamp = ros::Time::now();
+    ROS_INFO("Populating message image...");
+    img_tf_msg.image = msg->image;
+    ROS_INFO("Populating homographic transformation elements...");
+    cv_bridge::CvImage(
+        img_tf_msg.header,
+        sensor_msgs::image_encodings::TYPE_32FC1,
+        h_inv).toImageMsg(
+          img_tf_msg.homographic_transform);
+    ROS_INFO("Entering likely piece index...");
+    img_tf_msg.piece_index = (uint8_t) likely_piece_index;
+    ROS_INFO("Instantiating list of transformed points...");
+    Mat transformed_points;
+    ROS_INFO_STREAM("Running perspective transformation on "
+        << this->piece_central_points[likely_piece_index].size() << " points with homography transformation of size " << h_inv.size() << "...");
+    perspectiveTransform(
+        this->piece_central_points[likely_piece_index],
+        transformed_points,
+        h_inv);
+    geometry_msgs::Point pt_temp;
+
+    ROS_INFO_STREAM(
+        "h_inv: " << h_inv.at<double>(0, 0) << ", " << h_inv.at<double>(0, 1)
+        << ", " << h_inv.at<double>(0, 2) << ", " << h_inv.at<double>(0, 3) << "\n"
+        << "       " << h_inv.at<double>(1, 0) << ", " << h_inv.at<double>(1, 1)
+        << ", " << h_inv.at<double>(1, 2) << ", " << h_inv.at<double>(1, 3) << "\n"
+        << "       " << h_inv.at<double>(2, 0) << ", " << h_inv.at<double>(2, 1)
+        << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n"
+        << "       " << h_inv.at<double>(2, 0) << ", " << h_inv.at<double>(2, 1)
+        << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n");
+
+    for(i = 0; i < transformed_points.cols; ++i)
+    {
+      ROS_INFO_STREAM("Updating point " << i << "...");
+      pt_temp.x = transformed_points.at<float>(0, i);
+      pt_temp.y = transformed_points.at<float>(1, i);
+      img_tf_msg.transformed_points.push_back(pt_temp);
+    }
+
+    ROS_INFO("Publishing homography and transformed central points...");
+    this->transform_pub.publish(img_tf_msg);
+  }
+  else
+  {
+    ROS_INFO("Transformation `h_inv` could not be computed, possibly due to too few features.");
+  }
 }
 
 int main(int argc, char **argv)
