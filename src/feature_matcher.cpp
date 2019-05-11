@@ -287,7 +287,8 @@ void FeatureMatcher::imageSubscriberCallback(
       sensor_msgs::image_encodings::TYPE_32FC1)->image;
   Mat h;
   Mat h_inv;
-  sensor_msgs::ImagePtr image_pub_msg;
+  geometry_msgs::Point pt_temp;
+  jps_feature_matching::ImageTransform img_tf_msg;
   vector< vector<DMatch> > knn_matches;
   // Good SURF matches, binned according to the piece in the template.
   vector< vector<DMatch> > good_matches;
@@ -297,6 +298,9 @@ void FeatureMatcher::imageSubscriberCallback(
   // SURF feature points from the template,
   // binned according the piece they lie in.
   vector< vector<Point2f> > pt_template(this->piece_contours_f.size());
+
+  img_tf_msg.header.stamp = ros::Time::now();
+  img_tf_msg.image = msg->image;
 
   for(i = 0; i < this->piece_contours_f.size(); ++i)
   {
@@ -326,6 +330,12 @@ void FeatureMatcher::imageSubscriberCallback(
             msg->surf_key_points[knn_matches[i][0].queryIdx].y));
       pt_template[j].push_back(
           this->kp_template[knn_matches[i][0].trainIdx].pt);
+      pt_temp.x = msg->surf_key_points[knn_matches[i][0].queryIdx].x;
+      pt_temp.y = msg->surf_key_points[knn_matches[i][0].queryIdx].y;
+      img_tf_msg.piece_surf_key_points.push_back(pt_temp);
+      pt_temp.x = this->kp_template[knn_matches[i][0].trainIdx].pt.x;
+      pt_temp.y = this->kp_template[knn_matches[i][0].trainIdx].pt.y;
+      img_tf_msg.template_surf_key_points.push_back(pt_temp);
     }
     else
     {
@@ -346,6 +356,8 @@ void FeatureMatcher::imageSubscriberCallback(
     }
   }
 
+  img_tf_msg.piece_index = (uint8_t) likely_piece_index;
+
   // Compute the homographic transformation.
   ROS_INFO_STREAM(
       "Computing homographic transformation from piece ("
@@ -359,21 +371,12 @@ void FeatureMatcher::imageSubscriberCallback(
       CV_RANSAC);
   if(h_inv.rows > 0)
   {
-
-    ROS_INFO("Instantiating message object...");
-    jps_feature_matching::ImageTransform img_tf_msg;
-    ROS_INFO("Populating message header...");
-    img_tf_msg.header.stamp = ros::Time::now();
-    ROS_INFO("Populating message image...");
-    img_tf_msg.image = msg->image;
     ROS_INFO("Populating homographic transformation elements...");
     cv_bridge::CvImage(
         img_tf_msg.header,
         sensor_msgs::image_encodings::TYPE_32FC1,
         h_inv).toImageMsg(
           img_tf_msg.homographic_transform);
-    ROS_INFO("Entering likely piece index...");
-    img_tf_msg.piece_index = (uint8_t) likely_piece_index;
     ROS_INFO("Instantiating list of transformed points...");
     Mat transformed_points;
     ROS_INFO_STREAM("Running perspective transformation on "
@@ -382,7 +385,6 @@ void FeatureMatcher::imageSubscriberCallback(
         this->piece_central_points[likely_piece_index],
         transformed_points,
         h_inv);
-    geometry_msgs::Point pt_temp;
 
     ROS_INFO_STREAM(
         "h_inv: " << h_inv.at<double>(0, 0) << ", " << h_inv.at<double>(0, 1)
@@ -401,14 +403,14 @@ void FeatureMatcher::imageSubscriberCallback(
       pt_temp.y = transformed_points.at<float>(1, i);
       img_tf_msg.transformed_points.push_back(pt_temp);
     }
-
-    ROS_INFO("Publishing homography and transformed central points...");
-    this->transform_pub.publish(img_tf_msg);
   }
   else
   {
     ROS_INFO("Transformation `h_inv` could not be computed, possibly due to too few features.");
   }
+
+  ROS_INFO("Publishing homography and transformed central points...");
+  this->transform_pub.publish(img_tf_msg);
 }
 
 int main(int argc, char **argv)
