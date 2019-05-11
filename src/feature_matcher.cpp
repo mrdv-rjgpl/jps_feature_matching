@@ -303,9 +303,11 @@ void FeatureMatcher::imageSubscriberCallback(
   // binned according the piece they lie in.
   vector< vector<Point2f> > pt_template(this->piece_contours_f.size());
 
+  // Update output message header and image.
   img_tf_msg.header.stamp = ros::Time::now();
   img_tf_msg.image = msg->image;
 
+  // Populate keypoints of piece.
   for(i = 0; i < msg->surf_key_points.size(); ++i)
   {
       kp_piece.push_back(KeyPoint(
@@ -314,6 +316,7 @@ void FeatureMatcher::imageSubscriberCallback(
             1.0));
   }
 
+  // Initialize good matches and points.
   for(i = 0; i < this->piece_contours_f.size(); ++i)
   {
     good_matches.push_back(vector<DMatch>());
@@ -393,6 +396,7 @@ void FeatureMatcher::imageSubscriberCallback(
 
   if(h_inv.rows > 0)
   {
+    // Update h_inv in the output message.
     ROS_INFO("Populating homographic transformation elements...");
     cv_bridge::CvImage(
         img_tf_msg.header,
@@ -410,6 +414,7 @@ void FeatureMatcher::imageSubscriberCallback(
         transformed_points,
         h_inv);
 
+    /*
     ROS_INFO_STREAM(
         "h_inv: " << h_inv.at<double>(0, 0) << ", " << h_inv.at<double>(0, 1)
         << ", " << h_inv.at<double>(0, 2) << ", " << h_inv.at<double>(0, 3) << "\n"
@@ -419,6 +424,7 @@ void FeatureMatcher::imageSubscriberCallback(
         << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n"
         << "       " << h_inv.at<double>(2, 0) << ", " << h_inv.at<double>(2, 1)
         << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n");
+        */
 
     for(i = 0; i < transformed_points.cols; ++i)
     {
