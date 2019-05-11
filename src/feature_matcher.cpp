@@ -62,7 +62,7 @@ class FeatureMatcher
     /*
      * \brief Image publisher object
      */
-    image_transport::Publisher image_pub;
+    image_transport::Publisher vis_pub;
     /*
      * \brief SURF feature matcher
      */
@@ -76,13 +76,17 @@ class FeatureMatcher
      */
     vector<int> kp_piece_indices;
     /*
-     * \brief Contours of each piece extracted from the template
+     * \brief Contours of each piece extracted from the template in floating point form
      */
     vector< vector<Point2f> > piece_contours_f;
     /*
+     * \brief Contours of each piece extracted from the template in integer form
+     */
+    vector< vector<Point> > piece_contours_i;
+    /*
      * \brief Centroid and two other points to form x-y axes for each piece
      */
-    vector<Mat> piece_central_points;
+    vector< vector<Point2f> > piece_central_points;
     /*
      * \brief SURF detector object
      */
@@ -140,7 +144,7 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
       1,
       &FeatureMatcher::imageSubscriberCallback,
       this);
-  this->image_pub = this->img_transport->advertise("output_image", 1000);
+  this->vis_pub = this->img_transport->advertise("vis_image", 1000);
   this->transform_pub =
     this->nh.advertise<jps_feature_matching::ImageTransform>(
         "homographic_transform",
@@ -196,7 +200,6 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
         CV_RETR_TREE,
         CV_CHAIN_APPROX_NONE);
     contour_display = Mat::zeros(piece_template.size(), CV_8UC3);
-    Scalar colour(int(0.741 * 255), int(0.447 * 255), int(0.000 * 255));
 
     // Prune the outermost border from the piece contour list.
     for(i = 0; i < contour_heirarchy.size(); ++i)
@@ -208,36 +211,31 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
             "Adding current contour (" << i
             << ") to list of valid pieces...");
         this->piece_contours_f.push_back(vector<Point2f>());
+        this->piece_contours_i.push_back(vector<Point>());
         k = this->piece_contours_f.size() - 1;
 
         for(j = 0; j < piece_contours[i].size(); ++j)
         {
           this->piece_contours_f[k].push_back(
               Point2f(piece_contours[i][j].x, piece_contours[i][j].y));
+          this->piece_contours_i[k].push_back(
+              Point(piece_contours[i][j].x, piece_contours[i][j].y));
         }
 
         // Find the centroid of the piece and two points to form the x-y axes.
         ROS_INFO("Determining centroid of current piece...");
         Moments m = moments(piece_contours[i], false);
         ROS_INFO("Expanding vector of centroid and x-y axis points...");
-        this->piece_central_points.push_back(Mat::zeros(2, 3, CV_32FC1));
+        this->piece_central_points.push_back(vector<Point2f>());
         ROS_INFO("Saving centroid and x-y axis points for current piece...");
-        this->piece_central_points[k].at<float>(0, 0) = m.m10 / m.m00;
-        this->piece_central_points[k].at<float>(1, 0) = m.m01 / m.m00;
-        this->piece_central_points[k].at<float>(0, 1) = this->piece_central_points[k].at<float>(0, 0) + 32.0;
-        this->piece_central_points[k].at<float>(1, 1) = this->piece_central_points[k].at<float>(1, 0);
-        this->piece_central_points[k].at<float>(0, 1) = this->piece_central_points[k].at<float>(0, 0);
-        this->piece_central_points[k].at<float>(1, 1) = this->piece_central_points[k].at<float>(1, 0) + 32.0;
-        /*
-           this->piece_central_points[k].push_back(
-           Point2f(m.m10 / m.m00, m.m01 / m.m00));
-           this->piece_central_points[k].push_back(Point2f(
-           this->piece_central_points[k][0].x + 32.0,
-           this->piece_central_points[k][0].y));
-           this->piece_central_points[k].push_back(Point2f(
-           this->piece_central_points[k][0].x,
-           this->piece_central_points[k][0].y + 32.0));
-           */
+        this->piece_central_points[k].push_back(
+            Point2f(m.m10 / m.m00, m.m01 / m.m00));
+        this->piece_central_points[k].push_back(Point2f(
+              this->piece_central_points[k][0].x + 32.0,
+              this->piece_central_points[k][0].y));
+        this->piece_central_points[k].push_back(Point2f(
+              this->piece_central_points[k][0].x,
+              this->piece_central_points[k][0].y + 32.0));
       }
       else
       {
@@ -287,11 +285,17 @@ void FeatureMatcher::imageSubscriberCallback(
       sensor_msgs::image_encodings::TYPE_32FC1)->image;
   Mat h;
   Mat h_inv;
+  Mat template_vis = this->img_template.clone();
+  Mat img_vis;
   geometry_msgs::Point pt_temp;
   jps_feature_matching::ImageTransform img_tf_msg;
+  Scalar colour(int(0.741 * 255), int(0.447 * 255), int(0.000 * 255));
+  sensor_msgs::ImagePtr vis_msg;
   vector< vector<DMatch> > knn_matches;
   // Good SURF matches, binned according to the piece in the template.
   vector< vector<DMatch> > good_matches;
+  vector<DMatch> good_matches_combined;
+  vector<KeyPoint> kp_piece;
   // SURF feature points in the puzzle piece,
   // binned according to the template piece they are matched to.
   vector< vector<Point2f> > pt_piece;
@@ -301,6 +305,14 @@ void FeatureMatcher::imageSubscriberCallback(
 
   img_tf_msg.header.stamp = ros::Time::now();
   img_tf_msg.image = msg->image;
+
+  for(i = 0; i < msg->surf_key_points.size(); ++i)
+  {
+      kp_piece.push_back(KeyPoint(
+            msg->surf_key_points[i].x,
+            msg->surf_key_points[i].y,
+            1.0));
+  }
 
   for(i = 0; i < this->piece_contours_f.size(); ++i)
   {
@@ -325,17 +337,12 @@ void FeatureMatcher::imageSubscriberCallback(
       // Populate the good matches, piece points,
       // and template points accordingly.
       good_matches[j].push_back(knn_matches[i][0]);
+      good_matches_combined.push_back(knn_matches[i][0]);
       pt_piece[j].push_back(Point2f(
             msg->surf_key_points[knn_matches[i][0].queryIdx].x,
             msg->surf_key_points[knn_matches[i][0].queryIdx].y));
       pt_template[j].push_back(
           this->kp_template[knn_matches[i][0].trainIdx].pt);
-      pt_temp.x = msg->surf_key_points[knn_matches[i][0].queryIdx].x;
-      pt_temp.y = msg->surf_key_points[knn_matches[i][0].queryIdx].y;
-      img_tf_msg.piece_surf_key_points.push_back(pt_temp);
-      pt_temp.x = this->kp_template[knn_matches[i][0].trainIdx].pt.x;
-      pt_temp.y = this->kp_template[knn_matches[i][0].trainIdx].pt.y;
-      img_tf_msg.template_surf_key_points.push_back(pt_temp);
     }
     else
     {
@@ -356,7 +363,21 @@ void FeatureMatcher::imageSubscriberCallback(
     }
   }
 
+  // Update likely piece index with estimated index.
   img_tf_msg.piece_index = (uint8_t) likely_piece_index;
+
+  // Draw contour and publish visualization message.
+  drawContours(template_vis, this->piece_contours_i, likely_piece_index, colour, 2);
+  ROS_INFO("Drawing SURF matches on visualization image...");
+  drawMatches(
+      cv_bridge::toCvCopy(msg->image, "bgr8")->image, kp_piece,
+      template_vis, this->kp_template,
+      good_matches_combined, img_vis,
+      Scalar::all(-1), Scalar::all(-1), vector<char>(),
+      DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+  vis_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img_vis).toImageMsg();
+  ROS_INFO("Publishing image for visualization...");
+  this->vis_pub.publish(vis_msg);
 
   // Compute the homographic transformation.
   ROS_INFO_STREAM(
@@ -369,6 +390,7 @@ void FeatureMatcher::imageSubscriberCallback(
       pt_template[likely_piece_index],
       pt_piece[likely_piece_index],
       CV_RANSAC);
+
   if(h_inv.rows > 0)
   {
     ROS_INFO("Populating homographic transformation elements...");
@@ -380,7 +402,9 @@ void FeatureMatcher::imageSubscriberCallback(
     ROS_INFO("Instantiating list of transformed points...");
     Mat transformed_points;
     ROS_INFO_STREAM("Running perspective transformation on "
-        << this->piece_central_points[likely_piece_index].size() << " points with homography transformation of size " << h_inv.size() << "...");
+        << this->piece_central_points[likely_piece_index].size()
+        << " points with homography transformation of size "
+        << h_inv.size() << "...");
     perspectiveTransform(
         this->piece_central_points[likely_piece_index],
         transformed_points,

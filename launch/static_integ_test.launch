@@ -1,6 +1,11 @@
+<?xml version="1.0"?>
 <launch>
+	<param name="/test_piece_image/img_file_name" value="$(find jps_puzzle_piece)/dat/sample_pic.png" type="string" />
+	<node pkg="jps_puzzle_piece" type="test_piece_image_supplier" name="test_piece_image_supplier_node" ns="test_piece_image" output="screen"/>
+
+	<param name="/piece_parser/bin_threshold" value="95" />
+	<remap from="/piece_parser/input_image" to="/test_piece_image/camera/image" />
+	<node pkg="jps_puzzle_piece" type="piece_parser" name="piece_parser_node" ns="piece_parser" />
+
 	<include file="$(find jps_feature_matching)/launch/feature_matcher.launch" />
-	<include file="$(find jps_puzzle_piece)/launch/unit_test.launch" />
-	<remap from="/matched_feature_viz_node/input_image" to="/feature_matcher/homographic_transform" />
-	<node pkg="jps_feature_matching" type="matched_feature_viz" name="matched_feature_viz_node" ns="matched_feature_viz_node" />
 </launch>
