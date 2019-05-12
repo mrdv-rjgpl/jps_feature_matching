@@ -31,7 +31,6 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
     this->nh.advertise<geometry_msgs::PoseStamped>(
         "homographic_transform",
         1000);
-  this->robot_stationary = false;
 
   if(this->nh.getParam("img_template_name", img_template_name))
   {
@@ -195,10 +194,10 @@ void FeatureMatcher::imageSubscriberCallback(
   // Populate keypoints of piece.
   for(i = 0; i < msg->surf_key_points.size(); ++i)
   {
-      kp_piece.push_back(KeyPoint(
-            msg->surf_key_points[i].x,
-            msg->surf_key_points[i].y,
-            1.0));
+    kp_piece.push_back(KeyPoint(
+          msg->surf_key_points[i].x,
+          msg->surf_key_points[i].y,
+          1.0));
   }
 
   // Initialize good matches and points.
@@ -289,12 +288,12 @@ void FeatureMatcher::imageSubscriberCallback(
     {
       // Update h_inv in the output message.
       /*
-      ROS_INFO("Populating homographic transformation elements...");
-      cv_bridge::CvImage(
-          img_tf_msg.header,
-          sensor_msgs::image_encodings::TYPE_32FC1,
-          h_inv).toImageMsg(
-            img_tf_msg.homographic_transform); */
+         ROS_INFO("Populating homographic transformation elements...");
+         cv_bridge::CvImage(
+         img_tf_msg.header,
+         sensor_msgs::image_encodings::TYPE_32FC1,
+         h_inv).toImageMsg(
+         img_tf_msg.homographic_transform); */
       //ROS_INFO("Instantiating list of transformed points...");
       vector<Point2f> transformed_points;
       /*
@@ -322,6 +321,7 @@ void FeatureMatcher::imageSubscriberCallback(
       piece_centroid.x = msg->centroid_px.x;
       piece_centroid.y = msg->centroid_px.y;
 
+      circle(img_piece, Point2f(((double) img_piece.cols / 2.0), ((double) img_piece.rows / 2.0)), 32, colour, 2, 8, 0);
       circle(img_piece, piece_centroid, 8.0, colour_2, 2, 8, 0);
       double pixel_threshold = 10.0;
 
@@ -331,8 +331,8 @@ void FeatureMatcher::imageSubscriberCallback(
           && (piece_centroid.y - transformed_points[0].y < pixel_threshold)
           && (piece_centroid.y - transformed_points[0].y > -pixel_threshold))
       {
-        img_tf_msg.pose.position.x = (double) transformed_points[0].x - (double) img_piece.cols;
-        img_tf_msg.pose.position.y = (double) transformed_points[0].y - (double) img_piece.rows;
+        img_tf_msg.pose.position.x = (double) transformed_points[0].x - ((double) img_piece.cols / 2.0);
+        img_tf_msg.pose.position.y = (double) transformed_points[0].y - ((double) img_piece.rows / 2.0);
         img_tf_msg.pose.position.z = sqrt(
             (img_tf_msg.pose.position.x * img_tf_msg.pose.position.x)
             + (img_tf_msg.pose.position.y * img_tf_msg.pose.position.y));
@@ -357,12 +357,12 @@ void FeatureMatcher::imageSubscriberCallback(
 
         // Update output message with transformed points.
         /*
-        for(i = 0; i < transformed_points.size(); ++i)
-        {
-          pt_temp.x = transformed_points[i].x;
-          pt_temp.y = transformed_points[i].y;
-          img_tf_msg.transformed_points.push_back(pt_temp);
-        } */
+           for(i = 0; i < transformed_points.size(); ++i)
+           {
+           pt_temp.x = transformed_points[i].x;
+           pt_temp.y = transformed_points[i].y;
+           img_tf_msg.transformed_points.push_back(pt_temp);
+           } */
 
         // Update the visualization message with the x and y axes.
         circle(img_piece, transformed_points[0], 10, colour, 2, 8, 0);
@@ -370,9 +370,16 @@ void FeatureMatcher::imageSubscriberCallback(
         line(img_piece, transformed_points[0], transformed_points[2], colour, 2, 8, 0);
 
         // Publish the output message.
-        ROS_INFO("Publishing homography and transformed central points...");
-        this->transform_pub.publish(img_tf_msg);
-        this->robot_stationary = false;
+        if(msg->robot_stationary == true)
+        {
+          ROS_INFO("Publishing homography and transformed central points...");
+          ROS_INFO_STREAM("[ " << img_tf_msg.pose << "]");
+          this->transform_pub.publish(img_tf_msg);
+        }
+        else
+        {
+          ROS_INFO("Robot not stationary, so not publishing message.");
+        }
       }
       else
       {
