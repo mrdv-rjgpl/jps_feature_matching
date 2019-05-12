@@ -2,5 +2,5 @@
 	<remap from="/feature_matcher/input_image" to="/piece_parser/output_image" />
 	<param name="/feature_matcher/img_template_name" value="$(find jps_feature_matching)/dat/img_template.jpg" type="string" />
 	<param name="/feature_matcher/piece_template_name" value="$(find jps_feature_matching)/dat/img_pieces.png" type="string" />
-	<node pkg="jps_feature_matching" type="feature_matcher" name="feature_matcher_node" ns="feature_matcher" output="screen" />
+	<node pkg="jps_feature_matching" type="feature_matcher" name="feature_matcher_node" ns="feature_matcher" />
 </launch>

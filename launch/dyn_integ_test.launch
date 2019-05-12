@@ -1,11 +1,18 @@
 <?xml version="1.0"?>
 <launch>
-	<node pkg="tf" type="static_transform_publisher" name="base_camera_link_node" args="0.0409 -0.0384 0.0390 -0.2895 0.6568 -0.2627 0.6448 /ee_link /camera_link 100" />
+	<node pkg="tf" type="static_transform_publisher" name="base_camera_link_node" args="0.06258 -0.05467 0.05467 -0.2895 0.6568 -0.2627 0.6448 /ee_link /camera_link 100" />
 
-	<param name="/piece_parser/bin_threshold" value="95" />
+	<param name="/piece_parser/bin_threshold" value="66" />
 	<remap from="/piece_parser/input_image" to="/usb_cam/image_raw" />
 	<node pkg="jps_puzzle_piece" type="piece_parser" name="piece_parser_node" ns="piece_parser" />
 	<node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconf_node" />
+	<node pkg="image_view" type="image_view" name="image_view_node_features">
+		<remap from="image" to="/feature_matcher/vis_image" />
+	</node>
+
+	<node pkg="image_view" type="image_view" name="image_view_node_piece">
+		<remap from="image" to="/piece_parser/vis_image" />
+	</node>
 
 	<include file="$(find jps_puzzle_piece)/launch/hd_cam.launch" />
 

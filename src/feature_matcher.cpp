@@ -1,122 +1,4 @@
-#include <opencv2/calib3d/calib3d.hpp>
-#include <opencv2/core/core.hpp>
-#include <opencv2/features2d.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgcodecs/imgcodecs.hpp>
-#include <opencv2/xfeatures2d.hpp>
-
-#include <ros/ros.h>
-
-#include <cv_bridge/cv_bridge.h>
-#include <image_transport/image_transport.h>
-#include <sensor_msgs/image_encodings.h>
-
-#include <string>
-
-#include <algorithm>
-#include <functional>
-#include <exception>
-
-#include "jps_feature_matching/ImageTransform.h"
-#include "jps_puzzle_piece/ImageWithContour.h"
-
-using namespace cv;
-using namespace cv::xfeatures2d;
-using namespace std;
-
-class FeatureMatcher
-{
-  private:
-    /*
-     * \brief Transform publisher object
-     */
-    ros::Publisher transform_pub;
-    /*
-     * \brief Image subscriber object
-     */
-    ros::Subscriber image_sub;
-    /*
-     * \brief Image transport object
-     */
-    image_transport::ImageTransport *img_transport;
-    /*
-     * \brief Minimum hessian threshold for SURF feature extraction
-     */
-    int min_hessian;
-    /*
-     * \brief Template image
-     */
-    Mat img_template;
-    /*
-     * \brief Piece template
-     */
-    Mat piece_template;
-    /*
-     * \brief Descriptor matrix for template image
-     */
-    Mat desc_template;
-    /*
-     * \brief Node handler object
-     */
-    ros::NodeHandle nh;
-    /*
-     * \brief Image publisher object
-     */
-    image_transport::Publisher vis_pub;
-    /*
-     * \brief SURF feature matcher
-     */
-    Ptr<DescriptorMatcher> matcher;
-    /*
-     * \brief Keypoint vector for template image
-     */
-    vector<KeyPoint> kp_template;
-    /*
-     * \brief List of piece indices for each key point in the template image
-     */
-    vector<int> kp_piece_indices;
-    /*
-     * \brief Contours of each piece extracted from the template in floating point form
-     */
-    vector< vector<Point2f> > piece_contours_f;
-    /*
-     * \brief Contours of each piece extracted from the template in integer form
-     */
-    vector< vector<Point> > piece_contours_i;
-    /*
-     * \brief Centroid and two other points to form x-y axes for each piece
-     */
-    vector< vector<Point2f> > piece_central_points;
-    /*
-     * \brief SURF detector object
-     */
-    Ptr<SURF> surf_detector;
-    /*
-     * \brief Extract piece positions from the piece template
-     */
-    void getPieceTemplate(string piece_template_name);
-
-  public:
-    /*
-     * \brief Constructor for FeatureMatcher class
-     *
-     * \param[in] nh The node handler object
-     * \param[in] min_hessian The minimum Hessian threshold for SURF
-     * feature extraction
-     *
-     * \return a FeatureMatcher object
-     */
-    FeatureMatcher(ros::NodeHandle& nh, int min_hessian);
-
-    /*
-     * \brief Callback function for image subscriber
-     *
-     * \param[in] msg A message of type ImageWithContour containing the
-     * image, the contour of the piece, and its centroid
-     */
-    void imageSubscriberCallback(
-        const jps_puzzle_piece::ImageWithContourPtr& msg);
-};
+#include "feature_matcher.h"
 
 FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 {
@@ -146,9 +28,10 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
       this);
   this->vis_pub = this->img_transport->advertise("vis_image", 1000);
   this->transform_pub =
-    this->nh.advertise<jps_feature_matching::ImageTransform>(
+    this->nh.advertise<geometry_msgs::PoseStamped>(
         "homographic_transform",
         1000);
+  this->robot_stationary = false;
 
   if(this->nh.getParam("img_template_name", img_template_name))
   {
@@ -223,11 +106,11 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
         }
 
         // Find the centroid of the piece and two points to form the x-y axes.
-        ROS_INFO("Determining centroid of current piece...");
+        // ROS_INFO("Determining centroid of current piece...");
         Moments m = moments(piece_contours[i], false);
-        ROS_INFO("Expanding vector of centroid and x-y axis points...");
+        // ROS_INFO("Expanding vector of centroid and x-y axis points...");
         this->piece_central_points.push_back(vector<Point2f>());
-        ROS_INFO("Saving centroid and x-y axis points for current piece...");
+        // ROS_INFO("Saving centroid and x-y axis points for current piece...");
         this->piece_central_points[k].push_back(
             Point2f(m.m10 / m.m00, m.m01 / m.m00));
         this->piece_central_points[k].push_back(Point2f(
@@ -289,9 +172,10 @@ void FeatureMatcher::imageSubscriberCallback(
   Mat img_piece = cv_bridge::toCvCopy(msg->image, "bgr8")->image;
   Mat img_vis;
   geometry_msgs::Point pt_temp;
-  jps_feature_matching::ImageTransform img_tf_msg;
+  geometry_msgs::PoseStamped img_tf_msg;
   Point2f piece_centroid;
   Scalar colour(int(0.741 * 255), int(0.447 * 255), int(0.000 * 255));
+  Scalar colour_2(0, 0, 255);
   sensor_msgs::ImagePtr vis_msg;
   vector< vector<DMatch> > knn_matches;
   // Good SURF matches, binned according to the piece in the template.
@@ -307,7 +191,6 @@ void FeatureMatcher::imageSubscriberCallback(
 
   // Update output message header and image.
   img_tf_msg.header.stamp = ros::Time::now();
-  img_tf_msg.image = msg->image;
 
   // Populate keypoints of piece.
   for(i = 0; i < msg->surf_key_points.size(); ++i)
@@ -330,7 +213,7 @@ void FeatureMatcher::imageSubscriberCallback(
   // https://docs.opencv.org/3.4/d5/d6f/tutorial_feature_flann_matcher.html
   ROS_INFO_STREAM("Matching SURF features from image with template...");
   this->matcher->knnMatch(desc_piece, this->desc_template, knn_matches, 2);
-  ROS_INFO("Running comparison for good matches...");
+  // ROS_INFO("Running comparison for good matches...");
 
   for(i = 0; i < knn_matches.size(); ++i)
   {
@@ -364,7 +247,7 @@ void FeatureMatcher::imageSubscriberCallback(
     }
   }
 
-  ROS_INFO("knn_matches successfully checked.");
+  // ROS_INFO("knn_matches successfully checked.");
 
   // Determine the index of the most likely piece to which this corresponds.
   for(i = 0; i < good_matches.size(); ++i)
@@ -380,7 +263,9 @@ void FeatureMatcher::imageSubscriberCallback(
   }
 
   // Update likely piece index with estimated index.
-  img_tf_msg.piece_index = (uint8_t) likely_piece_index;
+  stringstream frame_str;
+  frame_str << likely_piece_index;
+  img_tf_msg.header.frame_id = frame_str.str();
 
   // Draw the piece contour in the visualization template.
   drawContours(template_vis, this->piece_contours_i, likely_piece_index, colour, 2);
@@ -399,83 +284,116 @@ void FeatureMatcher::imageSubscriberCallback(
         pt_template[likely_piece_index],
         pt_piece[likely_piece_index],
         CV_RANSAC);
-  }
-  else
-  {
-    // No operation
-  }
 
-  if(h_inv.rows > 0)
-  {
-    // Update h_inv in the output message.
-    ROS_INFO("Populating homographic transformation elements...");
-    cv_bridge::CvImage(
-        img_tf_msg.header,
-        sensor_msgs::image_encodings::TYPE_32FC1,
-        h_inv).toImageMsg(
-          img_tf_msg.homographic_transform);
-    ROS_INFO("Instantiating list of transformed points...");
-    vector<Point2f> transformed_points;
-    ROS_INFO_STREAM("Running perspective transformation on "
-        << this->piece_central_points[likely_piece_index].size()
-        << " points with homography transformation of size "
-        << h_inv.size() << "...");
-    perspectiveTransform(
-        this->piece_central_points[likely_piece_index],
-        transformed_points,
-        h_inv);
-
-    /*
-    ROS_INFO_STREAM(
-        "h_inv: " << h_inv.at<double>(0, 0) << ", " << h_inv.at<double>(0, 1)
-        << ", " << h_inv.at<double>(0, 2) << ", " << h_inv.at<double>(0, 3) << "\n"
-        << "       " << h_inv.at<double>(1, 0) << ", " << h_inv.at<double>(1, 1)
-        << ", " << h_inv.at<double>(1, 2) << ", " << h_inv.at<double>(1, 3) << "\n"
-        << "       " << h_inv.at<double>(2, 0) << ", " << h_inv.at<double>(2, 1)
-        << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n"
-        << "       " << h_inv.at<double>(2, 0) << ", " << h_inv.at<double>(2, 1)
-        << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n");
-        */
-
-    piece_centroid.x = msg->centroid_px.x;
-    piece_centroid.y = msg->centroid_px.y;
-
-    // Run a quality check on the transformation, comparing centroids.
-    if((piece_centroid.x - transformed_points[0].x < 8.0)
-        && (piece_centroid.x - transformed_points[0].x > -8.0)
-        && (piece_centroid.y - transformed_points[0].y < 8.0)
-        && (piece_centroid.y - transformed_points[0].y > -8.0))
+    if(h_inv.rows > 0)
     {
-      // Update output message with transformed points.
-      for(i = 0; i < transformed_points.size(); ++i)
-      {
-        ROS_INFO_STREAM("Updating point " << i << "...");
-        pt_temp.x = transformed_points[i].x;
-        pt_temp.y = transformed_points[i].y;
-        img_tf_msg.transformed_points.push_back(pt_temp);
-      }
+      // Update h_inv in the output message.
+      /*
+      ROS_INFO("Populating homographic transformation elements...");
+      cv_bridge::CvImage(
+          img_tf_msg.header,
+          sensor_msgs::image_encodings::TYPE_32FC1,
+          h_inv).toImageMsg(
+            img_tf_msg.homographic_transform); */
+      //ROS_INFO("Instantiating list of transformed points...");
+      vector<Point2f> transformed_points;
+      /*
+         ROS_INFO_STREAM("Running perspective transformation on "
+         << this->piece_central_points[likely_piece_index].size()
+         << " points with homography transformation of size "
+         << h_inv.size() << "..."); */
+      perspectiveTransform(
+          this->piece_central_points[likely_piece_index],
+          transformed_points,
+          h_inv);
 
-      // Update the visualization message with the x and y axes.
-      circle(img_piece, transformed_points[0], 10, colour, 2, 8, 0);
-      line(img_piece, transformed_points[0], transformed_points[1], colour, 2, 8, 0);
-      line(img_piece, transformed_points[0], transformed_points[2], colour, 2, 8, 0);
+      /*
+         ROS_INFO_STREAM(
+         "h_inv: " << h_inv.at<double>(0, 0) << ", " << h_inv.at<double>(0, 1)
+         << ", " << h_inv.at<double>(0, 2) << ", " << h_inv.at<double>(0, 3) << "\n"
+         << "       " << h_inv.at<double>(1, 0) << ", " << h_inv.at<double>(1, 1)
+         << ", " << h_inv.at<double>(1, 2) << ", " << h_inv.at<double>(1, 3) << "\n"
+         << "       " << h_inv.at<double>(2, 0) << ", " << h_inv.at<double>(2, 1)
+         << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n"
+         << "       " << h_inv.at<double>(2, 0) << ", " << h_inv.at<double>(2, 1)
+         << ", " << h_inv.at<double>(2, 2) << ", " << h_inv.at<double>(2, 3) << "\n");
+         */
+
+      piece_centroid.x = msg->centroid_px.x;
+      piece_centroid.y = msg->centroid_px.y;
+
+      circle(img_piece, piece_centroid, 8.0, colour_2, 2, 8, 0);
+      double pixel_threshold = 10.0;
+
+      // Run a quality check on the transformation, comparing centroids.
+      if((piece_centroid.x - transformed_points[0].x < pixel_threshold)
+          && (piece_centroid.x - transformed_points[0].x > -pixel_threshold)
+          && (piece_centroid.y - transformed_points[0].y < pixel_threshold)
+          && (piece_centroid.y - transformed_points[0].y > -pixel_threshold))
+      {
+        img_tf_msg.pose.position.x = (double) transformed_points[0].x - (double) img_piece.cols;
+        img_tf_msg.pose.position.y = (double) transformed_points[0].y - (double) img_piece.rows;
+        img_tf_msg.pose.position.z = sqrt(
+            (img_tf_msg.pose.position.x * img_tf_msg.pose.position.x)
+            + (img_tf_msg.pose.position.y * img_tf_msg.pose.position.y));
+
+        // Compute the x-axis.
+        ROS_INFO_STREAM("Computing x-axis of piece " << likely_piece_index << "...");
+        Point3f x_axis = Point3f(
+            transformed_points[1].x - transformed_points[0].x,
+            transformed_points[1].y - transformed_points[0].y,
+            0.0);
+        double x_axis_norm = sqrt((x_axis.x * x_axis.x) + (x_axis.y * x_axis.y));
+        x_axis.x /= x_axis_norm;
+        x_axis.y /= x_axis_norm;
+
+        // Compute the z-axis
+        Point3f z_axis = Point3f(0.0, 0.0, 1.0);
+
+        // Compute the y-axis.
+        ROS_INFO_STREAM("Computing y-axis of piece " << likely_piece_index << "...");
+        Point3f y_axis = z_axis.cross(x_axis);
+        img_tf_msg.pose.orientation = AxesToQuaternion(x_axis, y_axis, z_axis);
+
+        // Update output message with transformed points.
+        /*
+        for(i = 0; i < transformed_points.size(); ++i)
+        {
+          pt_temp.x = transformed_points[i].x;
+          pt_temp.y = transformed_points[i].y;
+          img_tf_msg.transformed_points.push_back(pt_temp);
+        } */
+
+        // Update the visualization message with the x and y axes.
+        circle(img_piece, transformed_points[0], 10, colour, 2, 8, 0);
+        line(img_piece, transformed_points[0], transformed_points[1], colour, 2, 8, 0);
+        line(img_piece, transformed_points[0], transformed_points[2], colour, 2, 8, 0);
+
+        // Publish the output message.
+        ROS_INFO("Publishing homography and transformed central points...");
+        this->transform_pub.publish(img_tf_msg);
+        this->robot_stationary = false;
+      }
+      else
+      {
+        ROS_WARN_STREAM(
+            "Transformed centroid (" << transformed_points[0].x << ", " << transformed_points[0].y
+            << ") outside of threshold from detected centroid ("
+            << piece_centroid.x << ", " << piece_centroid.y << ").");
+      }
     }
     else
     {
-      // No operation
+      ROS_WARN("Transformation `h_inv` could not be computed, possibly due to too few features matched.");
     }
   }
   else
   {
-    ROS_INFO("Transformation `h_inv` could not be computed, possibly due to too few features matched.");
+    ROS_WARN_STREAM("Cannot compute homographic transform without any features.");
   }
 
-  // Publish the output message.
-  ROS_INFO("Publishing homography and transformed central points...");
-  this->transform_pub.publish(img_tf_msg);
-
   // Publish the visualization message.
-  ROS_INFO("Drawing SURF matches on visualization image...");
+  //ROS_INFO("Drawing SURF matches on visualization image...");
   drawMatches(
       img_piece, kp_piece,
       template_vis, this->kp_template,
@@ -483,8 +401,53 @@ void FeatureMatcher::imageSubscriberCallback(
       Scalar::all(-1), Scalar::all(-1), vector<char>(),
       DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
   vis_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", img_vis).toImageMsg();
-  ROS_INFO("Publishing image for visualization...");
+  //ROS_INFO("Publishing image for visualization...");
   this->vis_pub.publish(vis_msg);
+}
+
+/*
+ * http://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/
+ */
+geometry_msgs::Quaternion AxesToQuaternion(Point3f x_axis, Point3f y_axis, Point3f z_axis)
+{
+  double rot_trace = x_axis.x + y_axis.y + z_axis.z;
+  double q_norm_factor;
+  geometry_msgs::Quaternion q;
+
+  if(rot_trace > 0.0)
+  {
+    q_norm_factor = sqrt(rot_trace + 1.0) * 2; // q_norm_factor=4*q.w
+    q.w = 0.25 * q_norm_factor;
+    q.x = (y_axis.z - z_axis.y) / q_norm_factor;
+    q.y = (z_axis.x - x_axis.z) / q_norm_factor;
+    q.z = (x_axis.y - y_axis.x) / q_norm_factor;
+  }
+  else if((x_axis.x > y_axis.y)&(x_axis.x > z_axis.z))
+  {
+    q_norm_factor = sqrt(1.0 + x_axis.x - y_axis.y - z_axis.z) * 2; // q_norm_factor=4*q.x
+    q.w = (y_axis.z - z_axis.y) / q_norm_factor;
+    q.x = 0.25 * q_norm_factor;
+    q.y = (y_axis.x + x_axis.y) / q_norm_factor;
+    q.z = (z_axis.x + x_axis.z) / q_norm_factor;
+  }
+  else if(y_axis.y > z_axis.z)
+  {
+    q_norm_factor = sqrt(1.0 + y_axis.y - x_axis.x - z_axis.z) * 2; // q_norm_factor=4*q.y
+    q.w = (z_axis.x - x_axis.z) / q_norm_factor;
+    q.x = (y_axis.x + x_axis.y) / q_norm_factor;
+    q.y = 0.25 * q_norm_factor;
+    q.z = (z_axis.y + y_axis.z) / q_norm_factor;
+  }
+  else
+  {
+    q_norm_factor = sqrt(1.0 + z_axis.z - x_axis.x - y_axis.y) * 2; // q_norm_factor=4*q.z
+    q.w = (x_axis.y - y_axis.x) / q_norm_factor;
+    q.x = (z_axis.x + x_axis.z) / q_norm_factor;
+    q.y = (z_axis.y + y_axis.z) / q_norm_factor;
+    q.z = 0.25 * q_norm_factor;
+  }
+
+  return q;
 }
 
 int main(int argc, char **argv)
