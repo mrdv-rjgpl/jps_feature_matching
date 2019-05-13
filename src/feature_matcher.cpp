@@ -370,16 +370,9 @@ void FeatureMatcher::imageSubscriberCallback(
         line(img_piece, transformed_points[0], transformed_points[2], colour, 2, 8, 0);
 
         // Publish the output message.
-        if(msg->robot_stationary == true)
-        {
-          ROS_INFO("Publishing homography and transformed central points...");
-          ROS_INFO_STREAM("[ " << img_tf_msg.pose << "]");
-          this->transform_pub.publish(img_tf_msg);
-        }
-        else
-        {
-          ROS_INFO("Robot not stationary, so not publishing message.");
-        }
+        ROS_INFO("Publishing homography and transformed central points...");
+        ROS_INFO_STREAM("[ " << img_tf_msg.pose << "]");
+        this->transform_pub.publish(img_tf_msg);
       }
       else
       {

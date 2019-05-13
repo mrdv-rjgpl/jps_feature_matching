@@ -5,7 +5,9 @@
 	<param name="/piece_parser/bin_threshold" value="66" />
 	<remap from="/piece_parser/input_image" to="/usb_cam/image_raw" />
 	<node pkg="jps_puzzle_piece" type="piece_parser" name="piece_parser_node" ns="piece_parser" />
+
 	<node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconf_node" />
+
 	<node pkg="image_view" type="image_view" name="image_view_node_features">
 		<remap from="image" to="/feature_matcher/vis_image" />
 	</node>
@@ -15,6 +17,5 @@
 	</node>
 
 	<include file="$(find jps_puzzle_piece)/launch/hd_cam.launch" />
-
 	<include file="$(find jps_feature_matching)/launch/feature_matcher.launch" />
 </launch>
