@@ -163,9 +163,9 @@ bool FeatureMatcher::findPieceTransform(
     jps_feature_matching::FindPieceTransform::Request &req,
     jps_feature_matching::FindPieceTransform::Response &rsp)
 {
-  rsp.header = this->img_tf_msg.header;
   rsp.piece_index = atoi(this->img_tf_msg.header.frame_id.c_str());
-  rsp.pose = this->img_tf_msg.pose;
+  rsp.pose.pose = this->img_tf_msg.pose;
+  rsp.pose.header = this->img_tf_msg.header;
 
   return true;
 }
