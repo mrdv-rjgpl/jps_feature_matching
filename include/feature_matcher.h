@@ -15,6 +15,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <geometry_msgs/PoseStamped.h>
 
+#include <cstdlib>
 #include <string>
 
 #include <algorithm>
@@ -40,6 +41,7 @@ class FeatureMatcher
      * \brief Image subscriber object
      */
     ros::Subscriber image_sub;
+    ros::ServiceServer piece_transform_service;
     /*
      * \brief Image transport object
      */
@@ -66,6 +68,7 @@ class FeatureMatcher
      * \brief Node handler object
      */
     ros::NodeHandle nh;
+    geometry_msgs::PoseStamped img_tf_msg;
     /*
      * \brief Image publisher object
      */

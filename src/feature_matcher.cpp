@@ -31,6 +31,10 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
     this->nh.advertise<geometry_msgs::PoseStamped>(
         "homographic_transform",
         1000);
+  this->piece_transform_service = this->nh.advertiseService(
+      "find_piece_transform",
+      &FeatureMatcher::findPieceTransform,
+      this);
 
   if(this->nh.getParam("img_template_name", img_template_name))
   {
@@ -159,6 +163,10 @@ bool FeatureMatcher::findPieceTransform(
     jps_feature_matching::FindPieceTransform::Request &req,
     jps_feature_matching::FindPieceTransform::Response &rsp)
 {
+  rsp.header = this->img_tf_msg.header;
+  rsp.piece_index = atoi(this->img_tf_msg.header.frame_id.c_str());
+  rsp.pose = this->img_tf_msg.pose;
+
   return true;
 }
 
@@ -178,7 +186,6 @@ void FeatureMatcher::imageSubscriberCallback(
   Mat img_piece = cv_bridge::toCvCopy(msg->image, "bgr8")->image;
   Mat img_vis;
   geometry_msgs::Point pt_temp;
-  geometry_msgs::PoseStamped img_tf_msg;
   Point2f piece_centroid;
   Scalar colour(int(0.741 * 255), int(0.447 * 255), int(0.000 * 255));
   Scalar colour_2(0, 0, 255);
@@ -196,7 +203,7 @@ void FeatureMatcher::imageSubscriberCallback(
   vector< vector<Point2f> > pt_template(this->piece_contours_f.size());
 
   // Update output message header and image.
-  img_tf_msg.header.stamp = ros::Time::now();
+  this->img_tf_msg.header.stamp = ros::Time::now();
 
   // Populate keypoints of piece.
   for(i = 0; i < msg->surf_key_points.size(); ++i)
@@ -271,7 +278,7 @@ void FeatureMatcher::imageSubscriberCallback(
   // Update likely piece index with estimated index.
   stringstream frame_str;
   frame_str << likely_piece_index;
-  img_tf_msg.header.frame_id = frame_str.str();
+  this->img_tf_msg.header.frame_id = frame_str.str();
 
   // Draw the piece contour in the visualization template.
   drawContours(template_vis, this->piece_contours_i, likely_piece_index, colour, 2);
@@ -297,10 +304,10 @@ void FeatureMatcher::imageSubscriberCallback(
       /*
          ROS_INFO("Populating homographic transformation elements...");
          cv_bridge::CvImage(
-         img_tf_msg.header,
+         this->img_tf_msg.header,
          sensor_msgs::image_encodings::TYPE_32FC1,
          h_inv).toImageMsg(
-         img_tf_msg.homographic_transform); */
+         this->img_tf_msg.homographic_transform); */
       //ROS_INFO("Instantiating list of transformed points...");
       vector<Point2f> transformed_points;
       /*
@@ -338,11 +345,11 @@ void FeatureMatcher::imageSubscriberCallback(
           && (piece_centroid.y - transformed_points[0].y < pixel_threshold)
           && (piece_centroid.y - transformed_points[0].y > -pixel_threshold))
       {
-        img_tf_msg.pose.position.x = (double) transformed_points[0].x - ((double) img_piece.cols / 2.0);
-        img_tf_msg.pose.position.y = (double) transformed_points[0].y - ((double) img_piece.rows / 2.0);
-        img_tf_msg.pose.position.z = sqrt(
-            (img_tf_msg.pose.position.x * img_tf_msg.pose.position.x)
-            + (img_tf_msg.pose.position.y * img_tf_msg.pose.position.y));
+        this->img_tf_msg.pose.position.x = (double) transformed_points[0].x - ((double) img_piece.cols / 2.0);
+        this->img_tf_msg.pose.position.y = (double) transformed_points[0].y - ((double) img_piece.rows / 2.0);
+        this->img_tf_msg.pose.position.z = sqrt(
+            (this->img_tf_msg.pose.position.x * this->img_tf_msg.pose.position.x)
+            + (this->img_tf_msg.pose.position.y * this->img_tf_msg.pose.position.y));
 
         // Compute the x-axis.
         ROS_INFO_STREAM("Computing x-axis of piece " << likely_piece_index << "...");
@@ -360,7 +367,7 @@ void FeatureMatcher::imageSubscriberCallback(
         // Compute the y-axis.
         ROS_INFO_STREAM("Computing y-axis of piece " << likely_piece_index << "...");
         Point3f y_axis = z_axis.cross(x_axis);
-        img_tf_msg.pose.orientation = AxesToQuaternion(x_axis, y_axis, z_axis);
+        this->img_tf_msg.pose.orientation = AxesToQuaternion(x_axis, y_axis, z_axis);
 
         // Update output message with transformed points.
         /*
@@ -368,7 +375,7 @@ void FeatureMatcher::imageSubscriberCallback(
            {
            pt_temp.x = transformed_points[i].x;
            pt_temp.y = transformed_points[i].y;
-           img_tf_msg.transformed_points.push_back(pt_temp);
+           this->img_tf_msg.transformed_points.push_back(pt_temp);
            } */
 
         // Update the visualization message with the x and y axes.
@@ -380,8 +387,7 @@ void FeatureMatcher::imageSubscriberCallback(
         if(msg->robot_stationary == true)
         {
           ROS_INFO("Publishing homography and transformed central points...");
-          ROS_INFO_STREAM("[ " << img_tf_msg.pose << "]");
-          this->transform_pub.publish(img_tf_msg);
+          ROS_INFO_STREAM("[ " << this->img_tf_msg.pose << "]");
         }
         else
         {
