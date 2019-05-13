@@ -17,6 +17,7 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
 
   // Initialize the feature matching node variables.
   ROS_INFO("Initializing feature matching node...");
+  this->new_piece_found = false;
   this->nh = nh;
   this->img_transport = new image_transport::ImageTransport(this->nh);
   this->min_hessian = min_hessian;
@@ -166,6 +167,9 @@ bool FeatureMatcher::findPieceTransform(
   rsp.piece_index = atoi(this->img_tf_msg.header.frame_id.c_str());
   rsp.pose.pose = this->img_tf_msg.pose;
   rsp.pose.header = this->img_tf_msg.header;
+  rsp.new_piece_found = this->new_piece_found;
+
+  this->new_piece_found = false;
 
   return true;
 }
@@ -382,17 +386,7 @@ void FeatureMatcher::imageSubscriberCallback(
         circle(img_piece, transformed_points[0], 10, colour, 2, 8, 0);
         line(img_piece, transformed_points[0], transformed_points[1], colour, 2, 8, 0);
         line(img_piece, transformed_points[0], transformed_points[2], colour, 2, 8, 0);
-
-        // Publish the output message.
-        if(msg->robot_stationary == true)
-        {
-          ROS_INFO("Publishing homography and transformed central points...");
-          ROS_INFO_STREAM("[ " << this->img_tf_msg.pose << "]");
-        }
-        else
-        {
-          ROS_INFO("Robot not stationary, so not publishing message.");
-        }
+        this->new_piece_found = true;
       }
       else
       {

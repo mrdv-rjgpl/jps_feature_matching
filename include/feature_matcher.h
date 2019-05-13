@@ -32,7 +32,7 @@ using namespace std;
 class FeatureMatcher
 {
   private:
-    bool robot_stationary;
+    bool new_piece_found;
     /*
      * \brief Transform publisher object
      */

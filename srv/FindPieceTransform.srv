@@ -1,3 +1,4 @@
 ---
 uint8 piece_index
 geometry_msgs/PoseStamped pose
+bool new_piece_found
