@@ -60,11 +60,11 @@ add_message_files(
 )
 
 ## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
+add_service_files(
+	DIRECTORY srv FILES FindPieceTransform.srv
 #   Service1.srv
 #   Service2.srv
-# )
+)
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -210,7 +210,7 @@ include_directories(
 # catkin_add_nosetests(test)
 
 add_executable(feature_matcher src/feature_matcher.cpp)
-add_dependencies(feature_matcher ${catkin_EXPORTED_TARGETS})
+add_dependencies(feature_matcher ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_gencpp)
 target_link_libraries(feature_matcher ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 add_executable(test_feature_supplier src/test_feature_supplier.cpp)
 target_link_libraries(test_feature_supplier ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})

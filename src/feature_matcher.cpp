@@ -155,6 +155,13 @@ FeatureMatcher::FeatureMatcher(ros::NodeHandle& nh, int min_hessian)
   ROS_INFO("Waiting for messages on topic 'input_image'...");
 }
 
+bool FeatureMatcher::findPieceTransform(
+    jps_feature_matching::FindPieceTransform::Request &req,
+    jps_feature_matching::FindPieceTransform::Response &rsp)
+{
+  return true;
+}
+
 void FeatureMatcher::imageSubscriberCallback(
     const jps_puzzle_piece::ImageWithContourPtr& msg)
 {

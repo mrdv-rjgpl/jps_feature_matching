@@ -22,6 +22,7 @@
 #include <exception>
 
 #include "jps_puzzle_piece/ImageWithContour.h"
+#include "jps_feature_matching/FindPieceTransform.h"
 
 using namespace cv;
 using namespace cv::xfeatures2d;
@@ -51,6 +52,7 @@ class FeatureMatcher
      * \brief Template image
      */
     Mat img_template;
+    Mat img_piece;
     /*
      * \brief Piece template
      */
@@ -59,6 +61,7 @@ class FeatureMatcher
      * \brief Descriptor matrix for template image
      */
     Mat desc_template;
+    Mat desc_piece;
     /*
      * \brief Node handler object
      */
@@ -71,6 +74,10 @@ class FeatureMatcher
      * \brief SURF feature matcher
      */
     Ptr<DescriptorMatcher> matcher;
+    /*
+     * \brief SURF detector object
+     */
+    Ptr<SURF> surf_detector;
     /*
      * \brief Keypoint vector for template image
      */
@@ -92,10 +99,6 @@ class FeatureMatcher
      */
     vector< vector<Point2f> > piece_central_points;
     /*
-     * \brief SURF detector object
-     */
-    Ptr<SURF> surf_detector;
-    /*
      * \brief Extract piece positions from the piece template
      */
     void getPieceTemplate(string piece_template_name);
@@ -111,6 +114,10 @@ class FeatureMatcher
      * \return a FeatureMatcher object
      */
     FeatureMatcher(ros::NodeHandle& nh, int min_hessian);
+
+    bool findPieceTransform(
+        jps_feature_matching::FindPieceTransform::Request &req,
+        jps_feature_matching::FindPieceTransform::Response &rsp);
 
     /*
      * \brief Callback function for image subscriber
