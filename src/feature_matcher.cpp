@@ -175,6 +175,7 @@ void FeatureMatcher::imageSubscriberCallback(
   Point2f piece_centroid;
   Scalar colour(int(0.741 * 255), int(0.447 * 255), int(0.000 * 255));
   Scalar colour_2(0, 0, 255);
+  Scalar colour_3(0, 255, 0);
   sensor_msgs::ImagePtr vis_msg;
   vector< vector<DMatch> > knn_matches;
   // Good SURF matches, binned according to the piece in the template.
@@ -322,7 +323,7 @@ void FeatureMatcher::imageSubscriberCallback(
       piece_centroid.y = msg->centroid_px.y;
 
       circle(img_piece, Point2f(((double) img_piece.cols / 2.0), ((double) img_piece.rows / 2.0)), 32, colour, 2, 8, 0);
-      circle(img_piece, piece_centroid, 8.0, colour_2, 2, 8, 0);
+      circle(img_piece, piece_centroid, 8, colour_2, 2, 8, 0);
       double pixel_threshold = 10.0;
 
       // Run a quality check on the transformation, comparing centroids.
@@ -365,9 +366,9 @@ void FeatureMatcher::imageSubscriberCallback(
            } */
 
         // Update the visualization message with the x and y axes.
-        circle(img_piece, transformed_points[0], 10, colour, 2, 8, 0);
-        line(img_piece, transformed_points[0], transformed_points[1], colour, 2, 8, 0);
-        line(img_piece, transformed_points[0], transformed_points[2], colour, 2, 8, 0);
+        circle(img_piece, transformed_points[0], 10, colour_3, 2, 8, 0);
+        line(img_piece, transformed_points[0], transformed_points[1], colour_3, 2, 8, 0);
+        line(img_piece, transformed_points[0], transformed_points[2], colour_3, 2, 8, 0);
 
         // Publish the output message.
         ROS_INFO("Publishing homography and transformed central points...");
